@@ -6,11 +6,11 @@
 
 ![AliciaSolid](./demo/alicia1.gif)
 
+## Components
 
-### BVH motion data
-
-- http://www.thetrailerspark.com/download/Mocap/Packed/EYES-JAPAN/BVH/
-- http://www.drf.co.jp/liveanimation/library/la_bvh_sample.html
+- vrm: Load vrm model
+- vrm-bvh: Play BVH motion
+- vrm-ik-poser: IK test [WIP]
 
 # License
 
