@@ -1,7 +1,8 @@
+'use strict';
 
 AFRAME.registerComponent('vrm', {
 	schema: {
-		src: { default: "" }
+		src: { default: '' }
 	},
 	init() {
 		this.avatar = null;
@@ -11,12 +12,12 @@ AFRAME.registerComponent('vrm', {
 		if (this.data.src !== oldData.src) {
 			new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(this.data.src, vrm => {
 				let model = vrm.scene;
-				this.el.setObject3D("avatar", model);
+				this.el.setObject3D('avatar', model);
 				let bones = {}; // UnityBoneName => Object3D
 				if (vrm.userData.gltfExtensions && vrm.userData.gltfExtensions.VRM) {
 					Object.values(vrm.userData.gltfExtensions.VRM.humanoid.humanBones).forEach(humanBone => {
 						let node = vrm.parser.json.nodes[humanBone.node];
-						let boneObj = vrm.scene.getObjectByName(node.name.replace(" ", "_"), true)
+						let boneObj = vrm.scene.getObjectByName(node.name.replace(' ', '_').replace('.', ''), true)
 						if (boneObj) {
 							bones[humanBone.bone] = boneObj;
 						}
@@ -25,7 +26,8 @@ AFRAME.registerComponent('vrm', {
 				model.skeleton = new THREE.Skeleton(Object.values(bones));
 				this.mixer = new THREE.AnimationMixer(model);
 				this.avatar = { model: model, mixer: this.mixer, bones: bones };
-				this.el.emit("vrmload", this.avatar, false);
+				this.el.emit('vrmload', this.avatar, false);
+				console.log(vrm.scene);
 			});
 		}
 	},
@@ -38,7 +40,7 @@ AFRAME.registerComponent('vrm', {
 
 AFRAME.registerComponent('vrm-bvh', {
 	schema: {
-		src: { default: "" },
+		src: { default: '' },
 	},
 	init() {
 		this.avatar = null;
@@ -47,7 +49,7 @@ AFRAME.registerComponent('vrm-bvh', {
 		}
 		this.el.addEventListener('vrmload', (ev) => {
 			this.avatar = ev.detail;
-			if (this.data.src != "") {
+			if (this.data.src != '') {
 				this._loadBVH(this.data.src, THREE.LoopRepeat);
 			} else {
 				this.playTestMotion();
@@ -85,39 +87,39 @@ AFRAME.registerComponent('vrm-bvh', {
 			// TODO: clear mixer
 			this.animation.stop();
 		}
-		if (path == "") {
+		if (path === '') {
 			return;
 		}
 		let { BVHLoader } = await import('https://threejs.org/examples/jsm/loaders/BVHLoader.js');
 		new BVHLoader().load(path, result => {
 			result.clip.tracks.forEach(t => {
-				// ".bones[Chest].quaternion"/
+				// '.bones[Chest].quaternion'/
 				t.name = t.name.replace(/bones\[(\w+)\]/, (m, name) => {
-					name = name.replace("Spin1", "Spin");
-					name = name.replace("Chest1", "Chest");
-					name = name.replace("Chest2", "UpperChest");
-					name = name.replace("UpLeg", "UpperLeg");
-					name = name.replace("LeftLeg", "LeftLowerLeg");
-					name = name.replace("RightLeg", "RightLowerLeg");
-					name = name.replace("ForeArm", "UpperArm");
-					name = name.replace("LeftArm", "LeftLowerArm");
-					name = name.replace("RightArm", "RightLowerArm");
-					name = name.replace("Collar", "Shoulder");
-					name = name.replace("Elbow", "LowerArm");
-					name = name.replace("Wrist", "Hand");
-					name = name.replace("LeftHip", "LeftUpperLeg");
-					name = name.replace("RightHip", "RightUpperLeg");
-					name = name.replace("Knee", "LowerLeg");
-					name = name.replace("Ankle", "Foot");
+					name = name.replace('Spin1', 'Spin');
+					name = name.replace('Chest1', 'Chest');
+					name = name.replace('Chest2', 'UpperChest');
+					name = name.replace('UpLeg', 'UpperLeg');
+					name = name.replace('LeftLeg', 'LeftLowerLeg');
+					name = name.replace('RightLeg', 'RightLowerLeg');
+					name = name.replace('ForeArm', 'UpperArm');
+					name = name.replace('LeftArm', 'LeftLowerArm');
+					name = name.replace('RightArm', 'RightLowerArm');
+					name = name.replace('Collar', 'Shoulder');
+					name = name.replace('Elbow', 'LowerArm');
+					name = name.replace('Wrist', 'Hand');
+					name = name.replace('LeftHip', 'LeftUpperLeg');
+					name = name.replace('RightHip', 'RightUpperLeg');
+					name = name.replace('Knee', 'LowerLeg');
+					name = name.replace('Ankle', 'Foot');
 					let bone = this.avatar.bones[name.charAt(0).toLowerCase() + name.slice(1)];
-					return "bones[" + (bone != null ? bone.name : "NOT_FOUND") + "]";
+					return 'bones[' + (bone != null ? bone.name : 'NOT_FOUND') + ']';
 				});
 				if (t.name.match(/quaternion/)) {
-					t.values = t.values.map((v, i) => i % 2 == 0 ? -v : v);
+					t.values = t.values.map((v, i) => i % 2 === 0 ? -v : v);
 				}
-				t.name = t.name.replace("ToeBase", "Foot");
+				t.name = t.name.replace('ToeBase', 'Foot');
 				if (t.name.match(/position/)) {
-					t.values = t.values.map((v, i) => (i % 3 == 1 ? v : -v) * 0.09); // TODO
+					t.values = t.values.map((v, i) => (i % 3 === 1 ? v : -v) * 0.09); // TODO
 				}
 			});
 			result.clip.tracks = result.clip.tracks.filter(t => !t.name.match(/NOT_FOUND/));
@@ -174,17 +176,17 @@ AFRAME.registerComponent('vrm-poser', {
 
 AFRAME.registerComponent('vrm-ik-poser', {
 	schema: {
-		leftTarget: { type: "selector", default: ".left-arm-ik-target" },
-		rightTarget: { type: "selector", default: ".right-arm-ik-target" },
-		leftLegTarget: { type: "selector", default: ".left-leg-ik-target" },
-		rightLegTarget: { type: "selector", default: ".right-leg-ik-target" },
-		mode: { default: "fik" },
+		leftTarget: { type: 'selector', default: '.left-arm-ik-target' },
+		rightTarget: { type: 'selector', default: '.right-arm-ik-target' },
+		leftLegTarget: { type: 'selector', default: '.left-leg-ik-target' },
+		rightLegTarget: { type: 'selector', default: '.right-leg-ik-target' },
+		mode: { default: 'fik' },
 	},
 	init() {
 		this.avatar = null;
 		this.el.addEventListener('vrmload', (ev) => {
 			this.avatar = ev.detail;
-			if (this.data.mode == "fik") {
+			if (this.data.mode === 'fik') {
 				this.startAvatarIK();
 			} else {
 				this.startAvatarIK_();
@@ -220,10 +222,10 @@ AFRAME.registerComponent('vrm-ik-poser', {
 			console.log(chain);
 			return chain;
 		};
-		setupIk(["leftShoulder", "leftUpperArm", "leftLowerArm", "leftHand"], this.data.leftTarget);
-		setupIk(["rightShoulder", "rightUpperArm", "rightLowerArm", "rightHand"], this.data.rightTarget);
-		setupIk(["leftUpperLeg", "leftLowerLeg", "leftFoot"], this.data.leftLegTarget);
-		setupIk(["rightUpperLeg", "rightLowerLeg", "rightFoot"], this.data.rightLegTarget);
+		setupIk(['leftShoulder', 'leftUpperArm', 'leftLowerArm', 'leftHand'], this.data.leftTarget);
+		setupIk(['rightShoulder', 'rightUpperArm', 'rightLowerArm', 'rightHand'], this.data.rightTarget);
+		setupIk(['leftUpperLeg', 'leftLowerLeg', 'leftFoot'], this.data.leftLegTarget);
+		setupIk(['rightUpperLeg', 'rightLowerLeg', 'rightFoot'], this.data.rightLegTarget);
 
 		this.ikSolver = ik;
 	},
@@ -238,15 +240,15 @@ AFRAME.registerComponent('vrm-ik-poser', {
 			const chain = new THREE.IKChain();
 			let boneList = boneNames.flatMap(name => this.avatar.bones[name] ? [this.avatar.bones[name]] : []);
 			boneList.forEach((bone, i) => {
-				let target = i == boneList.length - 1 ? targetEl.object3D : null;
+				let target = i === boneList.length - 1 ? targetEl.object3D : null;
 				if (target) this.qbinds.push([bone, target]);
 				chain.add(new THREE.IKJoint(bone, { constraints }), { target: target });
 			});
 			ik.add(chain);
 			console.log(this.avatar.bones);
 		};
-		setupIk(["leftShoulder", "leftUpperArm", "leftLowerArm", "leftHand"], this.data.leftTarget);
-		setupIk(["rightShoulder", "rightUpperArm", "rightLowerArm", "rightHand"], this.data.rightTarget);
+		setupIk(['leftShoulder', 'leftUpperArm', 'leftLowerArm', 'leftHand'], this.data.leftTarget);
+		setupIk(['rightShoulder', 'rightUpperArm', 'rightLowerArm', 'rightHand'], this.data.rightTarget);
 		let scene = this.el.sceneEl.object3D;
 		scene.add(ik.getRootBone());
 
