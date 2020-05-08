@@ -1,30 +1,33 @@
 
 AFRAME.registerComponent('vrm', {
 	schema: {
-		src: { default: "" },
-		motionSrc: { default: "" },
+		src: { default: "" }
 	},
 	init() {
-		this.model = null;
-		new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(this.data.src, vrm => {
-			this.el.setObject3D("avatar", vrm.scene);
-			this.model = vrm.scene;
-
-			let bones = {}; // UnityBoneName => Object3D
-			if (vrm.userData.gltfExtensions && vrm.userData.gltfExtensions.VRM) {
-				Object.values(vrm.userData.gltfExtensions.VRM.humanoid.humanBones).forEach(humanBone => {
-					let node = vrm.parser.json.nodes[humanBone.node];
-					let boneObj = vrm.scene.getObjectByName(node.name.replace(" ", "_"), true)
-					if (boneObj) {
-						bones[humanBone.bone] = boneObj;
-					}
-				});
-			}
-			this.model.skeleton = new THREE.Skeleton(Object.values(bones));
-			this.mixer = new THREE.AnimationMixer(this.model);
-			this.avatar = { model: this.model, mixer: this.mixer, bones: bones };
-			this.el.emit("vrmload", this.avatar, false);
-		});
+		this.avatar = null;
+		this.mixer = null;
+	},
+	update(oldData) {
+		if (this.data.src !== oldData.src) {
+			new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(this.data.src, vrm => {
+				let model = vrm.scene;
+				this.el.setObject3D("avatar", model);
+				let bones = {}; // UnityBoneName => Object3D
+				if (vrm.userData.gltfExtensions && vrm.userData.gltfExtensions.VRM) {
+					Object.values(vrm.userData.gltfExtensions.VRM.humanoid.humanBones).forEach(humanBone => {
+						let node = vrm.parser.json.nodes[humanBone.node];
+						let boneObj = vrm.scene.getObjectByName(node.name.replace(" ", "_"), true)
+						if (boneObj) {
+							bones[humanBone.bone] = boneObj;
+						}
+					});
+				}
+				model.skeleton = new THREE.Skeleton(Object.values(bones));
+				this.mixer = new THREE.AnimationMixer(model);
+				this.avatar = { model: model, mixer: this.mixer, bones: bones };
+				this.el.emit("vrmload", this.avatar, false);
+			});
+		}
 	},
 	tick(time, timeDelta) {
 		if (this.mixer) {

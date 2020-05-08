@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>VRM Test</title>
+  <script src="https://binzume.github.io/aframe/dist/aframe-master.min.js"></script>
+  <script src="https://binzume.github.io/aframe-xylayout/dist/xylayout-all.min.js"></script>
+  <script src="../vrm.js"></script>
+  <script src="demo.js"></script>
+</head>
+
+<body style="background-color: black; color:white;">
+  <a-scene fog="type: linear; color: #000; near:20;far:200;" renderer="antialias:true;">
+    <a-entity cursor="rayOrigin: mouse; fuse:false" raycaster="objects:.collidable;far:5500"></a-entity>
+    <a-sky class="collidable" instantiate-on-click="template:mainMenuTemplate;id:mainMenu;align:raycaster"></a-sky>
+
+    <a-entity xy-drag-control="draggable:.stage" vrm="src:assets/AliciaSolid/AliciaSolid.vrm" vrm-bvh="src:assets/bvhfiles/la_bvh_sample01.bvh" rotation="0 180 0" position="0 0 -3">
+      <a-box class="stage collidable" width="0.3" depth="0.3" height="0.04" position="0 -0.03 0"></a-box>
+    </a-entity>
+
+    <a-entity id="camera-rig" position-controls="axismove:x">
+      <a-camera position="0 1.5 0" look-controls="enabled:false" wasd-controls="enabled:false"></a-camera>
+      <a-entity laser-controls="hand: right" id="rightHand" raycaster="far:Infinity;objects:.collidable,.clickable,a-rounded">
+      </a-entity>
+      <a-entity laser-controls="hand: left" id="leftHand" raycaster="far:Infinity;objects:.collidable,.clickable,a-rounded">
+      </a-entity>
+      <!-- kbd -->
+      <a-entity position="0 0.5 -3">
+        <a-xykeyboard ime=true></a-xykeyboard>
+      </a-entity>
+    </a-entity>
+
+  </a-scene>
+</body>
+
+</html>

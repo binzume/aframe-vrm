@@ -1,10 +1,10 @@
 # [WIP] VRM Components for WebVR
 
-VRM & Motion test.
+[VRM](https://vrm.dev/) & Motion test.
 
-https://vrm.dev/
+- DEMO: https://binzume.github.io/aframe-vrm/demo/
 
-![AliciaSolid](./examples/alicia1.gif)
+![AliciaSolid](./demo/alicia1.gif)
 
 
 ### BVH motion data
