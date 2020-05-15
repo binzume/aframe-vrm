@@ -48,7 +48,7 @@ AFRAME.registerComponent('vrm-bvh', {
 	},
 	init() {
 		this.avatar = null;
-		if (this.el.components.vrm) {
+		if (this.el.components.vrm && this.el.components.vrm.avatar) {
 			this.avatar = this.el.components.vrm.avatar;
 		}
 		this.onVrmLoaded = (ev) => {
@@ -94,6 +94,9 @@ AFRAME.registerComponent('vrm-bvh', {
 		}
 		let { BVHLoader } = await import('https://threejs.org/examples/jsm/loaders/BVHLoader.js');
 		new BVHLoader().load(path, result => {
+			if (!this.avatar) {
+				return;
+			}
 			result.clip.tracks.forEach(t => {
 				// '.bones[Chest].quaternion'/
 				t.name = t.name.replace(/bones\[(\w+)\]/, (m, name) => {
@@ -139,6 +142,7 @@ AFRAME.registerComponent('vrm-bvh', {
 	remove() {
 		this.el.removeEventListener('vrmload', this.onVrmLoaded);
 		this.stopAnimation();
+		this.avatar = null;
 	}
 });
 
@@ -147,14 +151,12 @@ AFRAME.registerComponent('vrm-skeleton', {
 	},
 	init() {
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
-			this.avatarUpdated(this.el.components.vrm.avatar);
+			this.onAvatarUpdated(this.el.components.vrm.avatar);
 		}
-		this.onVrmLoaded = (ev) => {
-			this.avatarUpdated(ev.detail);
-		};
+		this.onVrmLoaded = (ev) => this.onAvatarUpdated(ev.detail);
 		this.el.addEventListener('vrmload', this.onVrmLoaded);
 	},
-	avatarUpdated(avatar) {
+	onAvatarUpdated(avatar) {
 		let scene = this.el.sceneEl.object3D;
 		if (this.helper) {
 			scene.remove(this.helper);
@@ -177,13 +179,12 @@ AFRAME.registerComponent('vrm-poser', {
 	},
 	init() {
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
-			this.avatarUpdated(this.el.components.vrm.avatar);
+			this.onAvatarUpdated(this.el.components.vrm.avatar);
 		}
-		this.el.addEventListener('vrmload', (ev) => {
-			this.avatarUpdated(ev.detail);
-		});
+		this.onVrmLoaded = (ev) => this.onAvatarUpdated(ev.detail);
+		this.el.addEventListener('vrmload', this.onVrmLoaded);
 	},
-	avatarUpdated(avatar) {
+	onAvatarUpdated(avatar) {
 		let size = 0.05;
 		for (let b of Object.values(avatar.bones)) {
 			let geometry = new THREE.BoxGeometry(size, size, size);
@@ -207,16 +208,18 @@ AFRAME.registerComponent('vrm-ik-poser', {
 		mode: { default: 'fik' },
 	},
 	init() {
+		this.targetEls = [];
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
 			this.onAvatarUpdated(this.el.components.vrm.avatar);
 		}
-		this.onVrmLoaded = (ev) => {
-			this.onAvatarUpdated(ev.detail);
-		};
+		this.onVrmLoaded = (ev) => this.onAvatarUpdated(ev.detail);
 		this.el.addEventListener('vrmload', this.onVrmLoaded);
-		this.targetEls = [];
 	},
 	onAvatarUpdated(avatar) {
+		for (let el of this.targetEls) {
+			this.el.removeChild(el);
+		}
+		this.targetEls = [];
 		if (this.data.mode === 'fik') {
 			this.startAvatarIK(avatar);
 		} else {
