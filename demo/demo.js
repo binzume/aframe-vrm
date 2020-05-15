@@ -1,5 +1,35 @@
 'use strict';
 
+AFRAME.registerComponent('camera-control', {
+    schema: {
+    },
+    init() {
+        this.dragging = false;
+        let cursorEl = document.getElementById('mouse-cursor');
+        let canvasEl = this.el.sceneEl.canvas;
+        let dragX = 0, dragY = 0;
+        this.onMouseMove = (ev) => {
+            let targetObj = this.el.object3D;
+            let mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(dragY - ev.offsetY, dragX - ev.offsetX, 0), 0.005);
+            targetObj.applyMatrix(mat); // TODO
+            dragX = ev.offsetX;
+            dragY = ev.offsetY;
+        };
+        canvasEl.addEventListener('mousedown', (ev) => {
+            if (!this.dragging && cursorEl.components.cursor.intersectedEl == null) {
+                this.dragging = true;
+                dragX = ev.offsetX;
+                dragY = ev.offsetY;
+                canvasEl.addEventListener('mousemove', this.onMouseMove);
+            }
+        });
+        canvasEl.addEventListener('mouseup', (ev) => {
+            this.dragging = false;
+            canvasEl.removeEventListener('mousemove', this.onMouseMove);
+        });
+    }
+});
+
 window.addEventListener('DOMContentLoaded', (ev) => {
 
     let models = [
@@ -26,6 +56,37 @@ window.addEventListener('DOMContentLoaded', (ev) => {
     list.setContents(models);
     listEl.addEventListener('clickitem', (ev) => {
         document.querySelector('[vrm]').setAttribute('vrm', { 'src': models[ev.detail.index].src });
+    });
+
+    document.getElementById('skeleton-toggle').addEventListener('change', (ev) => {
+        if (ev.detail.value) {
+            for (var el of document.querySelectorAll('[vrm]')) {
+                el.setAttribute('vrm-skeleton', {});
+            }
+        } else {
+            for (var el of document.querySelectorAll('[vrm]')) {
+                el.removeAttribute('vrm-skeleton');
+            }
+        }
+    });
+
+    document.getElementById('ik-toggle').addEventListener('change', (ev) => {
+        if (ev.detail.value) {
+            for (var el of document.querySelectorAll('[vrm]')) {
+                el.removeAttribute('vrm-bvh');
+                el.setAttribute('vrm-ik-poser', {});
+            }
+        } else {
+            for (var el of document.querySelectorAll('[vrm]')) {
+                el.removeAttribute('vrm-ik-poser');
+            }
+        }
+    });
+
+    document.getElementById('stop-animation-button').addEventListener('click', (ev) => {
+        for (var el of document.querySelectorAll('[vrm]')) {
+            el.removeAttribute('vrm-bvh');
+        }
     });
 
     window.addEventListener('dragover', (ev) => {

@@ -13,21 +13,26 @@
 
 <body style="background-color: black; color:white;">
   <a-scene fog="type: linear; color: #000; near:20;far:200;" renderer="antialias:true;">
-    <a-entity cursor="rayOrigin: mouse; fuse:false" raycaster="objects:.collidable;far:5500"></a-entity>
+    <a-entity id="mouse-cursor" cursor="rayOrigin: mouse; fuse:false" raycaster="objects:.collidable;far:5500"></a-entity>
 
-    <a-entity xy-drag-control="draggable:.stage" vrm="src:assets/AliciaSolid/AliciaSolid.vrm" vrm-bvh="src:assets/bvhfiles/la_bvh_sample01.bvh" rotation="0 180 0" position="0 0 -3">
+    <a-entity xy-drag-control="draggable:.stage" vrm="src:assets/AliciaSolid/AliciaSolid.vrm" vrm-bvh="src:assets/bvhfiles/la_bvh_sample01.bvh" rotation="0 180 0">
       <a-box class="stage collidable" width="0.3" depth="0.3" height="0.04" position="0 -0.03 0"></a-box>
     </a-entity>
 
 
-    <a-xywindow position="-6 2 -6" title="Models" width="3" height="4" window-locator xycontainer="direction:column">
+    <a-xywindow position="-6 2 -3" title="Models" width="3" height="4" window-locator xycontainer="direction:column">
+      <a-xycontainer height="0.6" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+        <a-xytoggle id="skeleton-toggle" value="false"></a-xytoggle>
+        <a-xytoggle id="ik-toggle" value="false"></a-xytoggle>
+        <a-xybutton id="stop-animation-button" label="stop" width="1"></a-xybutton>
+      </a-xycontainer>
       <a-xyscroll width=3 height=4 scrollbar=false>
         <a-entity id="model-list" xylist="" xyrect=""></a-entity>
       </a-xyscroll>
     </a-xywindow>
 
-    <a-entity id="camera-rig" position-controls="axismove:x">
-      <a-camera position="0 1.5 0" look-controls="enabled:false" wasd-controls="enabled:false"></a-camera>
+    <a-entity id="camera-rig" position-controls="axismove:x" position="0 0 0">
+      <a-camera position="0 1.5 3" look-controls="enabled:false" wasd-controls="enabled:false" camera-control></a-camera>
       <a-entity laser-controls="hand: right" id="rightHand" raycaster="far:Infinity;objects:.collidable,.clickable,a-rounded">
       </a-entity>
       <a-entity laser-controls="hand: left" id="leftHand" raycaster="far:Infinity;objects:.collidable,.clickable,a-rounded">
