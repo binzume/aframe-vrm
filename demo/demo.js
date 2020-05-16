@@ -8,10 +8,29 @@ AFRAME.registerComponent('camera-control', {
         let cursorEl = document.getElementById('mouse-cursor');
         let canvasEl = this.el.sceneEl.canvas;
         let dragX = 0, dragY = 0;
+        let lookAt = new THREE.Vector3(0, 1.5, 0);
+        let rotation = new THREE.Euler(0, 0, 0, 'YXZ');
+        let distance = 3;
+        let updateCamera = () => {
+            let targetObj = this.el.object3D;
+            let cameraRot = new THREE.Quaternion().setFromEuler(rotation);
+            let cameraVec = new THREE.Vector3(0, 0, 1).applyQuaternion(cameraRot).multiplyScalar(distance);
+            let cameraPos = lookAt.clone().add(cameraVec);
+            targetObj.position.copy(targetObj.parent.worldToLocal(cameraPos));
+            targetObj.quaternion.copy(cameraRot.multiply(targetObj.parent.getWorldQuaternion(new THREE.Quaternion())));
+        };
         this.onMouseMove = (ev) => {
             let targetObj = this.el.object3D;
-            let mat = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(dragY - ev.offsetY, dragX - ev.offsetX, 0), 0.005);
-            targetObj.applyMatrix(mat); // TODO
+
+            let speedFactor = 0.005;
+            if (ev.buttons & 6) {
+                let v = new THREE.Vector3(dragX - ev.offsetX, -(dragY - ev.offsetY), 0).applyQuaternion(targetObj.quaternion);
+                lookAt.add(v.multiplyScalar(speedFactor));
+            } else {
+                rotation.x += (dragY - ev.offsetY) * speedFactor;
+                rotation.y += (dragX - ev.offsetX) * speedFactor;
+            }
+            updateCamera();
             dragX = ev.offsetX;
             dragY = ev.offsetY;
         };
@@ -27,6 +46,12 @@ AFRAME.registerComponent('camera-control', {
             this.dragging = false;
             canvasEl.removeEventListener('mousemove', this.onMouseMove);
         });
+        canvasEl.addEventListener('wheel', ev => {
+            let speedFactor = 0.005;
+            distance = Math.max(0.1, distance + ev.deltaY * speedFactor);
+            updateCamera();
+        });
+
     }
 });
 
@@ -36,6 +61,11 @@ window.addEventListener('DOMContentLoaded', (ev) => {
         { name: 'AliciaSolid', src: 'assets/AliciaSolid/AliciaSolid.vrm' },
         { name: 'AliciaSolid_mmd', src: 'assets/AliciaSolid/AliciaSolid_mmd.vrm' },
         { name: 'Zunko', src: 'assets/Zunko/zunko_vrm.vrm' }
+    ];
+    let motions = [
+        'assets/bvhfiles/la_bvh_sample01.bvh',
+        'assets/bvhfiles/la_bvh_sample02.bvh',
+        'assets/bvhfiles/la_bvh_sample03.bvh'
     ];
     let listEl = document.getElementById('model-list');
     let list = listEl.components.xylist;
@@ -56,6 +86,10 @@ window.addEventListener('DOMContentLoaded', (ev) => {
     list.setContents(models);
     listEl.addEventListener('clickitem', (ev) => {
         document.querySelector('[vrm]').setAttribute('vrm', { 'src': models[ev.detail.index].src });
+    });
+
+    document.getElementById('animation-select').addEventListener('change', (ev) => {
+        document.querySelector('[vrm]').setAttribute('vrm-bvh', { 'src': motions[ev.detail.index] });
     });
 
     document.getElementById('skeleton-toggle').addEventListener('change', (ev) => {
