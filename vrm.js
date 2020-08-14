@@ -292,6 +292,7 @@ AFRAME.registerComponent('vrm-poser', {
 		let size = 1;
 		let geometry = new THREE.BoxGeometry(size, size, size);
 		let material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+		let q = new THREE.Quaternion();
 		for (let b of Object.values(avatar.bones)) {
 			var cube = new THREE.Mesh(geometry, material);
 			material.depthTest = false;
@@ -301,21 +302,23 @@ AFRAME.registerComponent('vrm-poser', {
 			targetEl.classList.add('collidable');
 			targetEl.setAttribute('xy-drag-control', {});
 			targetEl.setObject3D('handle', cube);
-			let minDist = b.children.reduce((d, b) => Math.min(d, b.position.distanceTo(b.parent.position)), b.position.distanceTo(b.parent.position));
+			let minDist = b.children.reduce((d, b) => Math.min(d, b.position.length()), b.position.length());
 			targetEl.object3D.scale.multiplyScalar(Math.max(Math.min(minDist / 2, 0.05), 0.01));
 			let bone = b;
 			targetEl.addEventListener('xy-drag', ev => {
-				let p = bone.parent.worldToLocal(targetEl.object3D.getWorldPosition(new THREE.Vector3())).normalize();
-				let q = new THREE.Quaternion().setFromUnitVectors(bone.position.clone().normalize(), p);
-				bone.parent.quaternion.multiply(q);
-				bone.quaternion.copy(targetEl.object3D.quaternion);
+				if (b.parent.children.length == 1) {
+					let p = bone.parent.worldToLocal(targetEl.object3D.getWorldPosition(new THREE.Vector3())).normalize();
+					let q = new THREE.Quaternion().setFromUnitVectors(bone.position.clone().normalize(), p);
+					bone.parent.quaternion.multiply(q);
+				}
+				bone.quaternion.copy(targetEl.object3D.getWorldQuaternion(q)).premultiply(bone.parent.getWorldQuaternion(q).inverse());
 				this.updateHandlePosition(bone);
 			});
 			targetEl.addEventListener('xy-dragend', ev => {
 				this.updateHandlePosition();
 			});
 			this.el.appendChild(targetEl);
-			this.binds.push([b, targetEl]);
+			this.binds.push([b, targetEl.object3D]);
 		}
 		this.updateHandlePosition();
 	},
@@ -324,14 +327,15 @@ AFRAME.registerComponent('vrm-poser', {
 		this.binds.forEach(bind => this.el.removeChild(bind[1]));
 		this.binds = [];
 	},
-	updateHandlePosition(ignore) {
+	updateHandlePosition(skip) {
+		let q = new THREE.Quaternion();
+		let container = this.el.object3D;
 		this.binds.forEach(([b, t]) => {
-			if (b == ignore) {
+			if (b == skip) {
 				return;
 			}
-			let p = this.el.object3D.worldToLocal(b.getWorldPosition(new THREE.Vector3()));
-			t.object3D.position.copy(p);
-			t.object3D.quaternion.copy(b.quaternion);
+			container.worldToLocal(b.getWorldPosition(t.position));
+			b.getWorldQuaternion(t.quaternion).premultiply(container.getWorldQuaternion(q).inverse());
 		});
 
 	}
