@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>VRM Test</title>
   <script src="https://binzume.github.io/aframe/dist/aframe-master.min.js"></script>
-  <script src="https://binzume.github.io/aframe-xylayout/dist/xylayout-all.min.js"></script>
+  <script src="../../xylayout/dist/xylayout-all.min.js"></script>
   <script src="../vrm.js"></script>
   <script src="demo.js"></script>
 </head>
@@ -15,31 +15,39 @@
   <a-scene fog="type: linear; color: #000; near:20;far:200;" renderer="antialias:true;">
     <a-entity id="mouse-cursor" cursor="rayOrigin: mouse; fuse:false" raycaster="objects:.collidable;far:5500"></a-entity>
 
-    <a-entity xy-drag-control="draggable:.stage" vrm="src:assets/AliciaSolid/AliciaSolid.vrm" vrm-bvh="src:assets/bvhfiles/la_bvh_sample01.bvh" rotation="0 180 0">
+    <a-entity xy-drag-control="draggable:.stage" vrm="src:assets/AliciaSolid/AliciaSolid.vrm" vrm-bvh="" rotation="0 180 0">
       <a-box class="stage collidable" width="0.3" depth="0.3" height="0.04" position="0 -0.03 0"></a-box>
     </a-entity>
 
     <a-entity id="camera-rig" position-controls="axismove:x" position="0 0 3">
-      <!-- Avatar control panel -->
-      <a-xywindow position="-8 2.5 -8" title="Models" width="3" height="4" window-locator xycontainer="direction:column">
-        <a-xycontainer height="0.6" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
-          <a-xylabel value="Skel" width="2"></a-xylabel>
-          <a-xytoggle id="skeleton-toggle" value="false"></a-xytoggle>
-        </a-xycontainer>
-        <a-xycontainer height="0.6" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
-          <a-xylabel value="IKtest" width="2"></a-xylabel>
-          <a-xytoggle id="ik-toggle" value="false"></a-xytoggle>
-        </a-xycontainer>
-        <a-xycontainer height="0.6" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
-          <a-xyselect id="animation-select" label="Motion" width="0.5" height="0.4" values="1,2,3"></a-xyselect>
-          <a-xybutton id="stop-animation-button" label="stop" width="1"></a-xybutton>
-        </a-xycontainer>
-        <a-xyscroll width=3 height=4 scrollbar=false>
-          <a-entity id="model-list" xylist="" xyrect=""></a-entity>
-        </a-xyscroll>
-      </a-xywindow>
 
       <a-camera position="0 1.5 0" look-controls="enabled:false" wasd-controls="enabled:false" camera-control>
+        <!-- Avatar control panel -->
+        <a-xywindow position="-7 1 -9" title="Models" width="3" height="4" window-locator xycontainer="direction:column">
+          <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+            <a-xylabel value="Blink" width="2"></a-xylabel>
+            <a-xytoggle id="blink-toggle" value="true"></a-xytoggle>
+          </a-xycontainer>
+          <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+            <a-xylabel value="LookCam" width="2"></a-xylabel>
+            <a-xytoggle id="lookat-toggle" value="false"></a-xytoggle>
+          </a-xycontainer>
+          <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+            <a-xylabel value="Skel" width="2"></a-xylabel>
+            <a-xytoggle id="skeleton-toggle" value="false"></a-xytoggle>
+          </a-xycontainer>
+          <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+            <a-xylabel value="BoneTest" width="2"></a-xylabel>
+            <a-xytoggle id="bone-toggle" value="false"></a-xytoggle>
+          </a-xycontainer>
+          <a-xycontainer height="0.6" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+            <a-xyselect id="animation-select" label="Motion" width="0.5" height="0.4" values="1,2,3"></a-xyselect>
+            <a-xybutton id="stop-animation-button" label="stop" width="1"></a-xybutton>
+          </a-xycontainer>
+          <a-xyscroll width=3 height=4 scrollbar=false>
+            <a-entity id="model-list" xylist="" xyrect=""></a-entity>
+          </a-xyscroll>
+        </a-xywindow>
       </a-camera>
 
       <a-entity laser-controls="hand: right" id="rightHand" raycaster="far:Infinity;objects:.collidable,.clickable,a-rounded">

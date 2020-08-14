@@ -104,15 +104,27 @@ window.addEventListener('DOMContentLoaded', (ev) => {
         }
     });
 
-    document.getElementById('ik-toggle').addEventListener('change', (ev) => {
+    document.getElementById('blink-toggle').addEventListener('change', (ev) => {
+        for (var el of document.querySelectorAll('[vrm]')) {
+            el.setAttribute('vrm', 'blink', ev.detail.value);
+        }
+    });
+
+    document.getElementById('lookat-toggle').addEventListener('change', (ev) => {
+        for (var el of document.querySelectorAll('[vrm]')) {
+            el.components.vrm.lookAtTarget = ev.detail.value ? el.sceneEl.camera : null;
+        }
+    });
+
+    document.getElementById('bone-toggle').addEventListener('change', (ev) => {
         if (ev.detail.value) {
             for (var el of document.querySelectorAll('[vrm]')) {
                 el.removeAttribute('vrm-bvh');
-                el.setAttribute('vrm-ik-poser', {});
+                el.setAttribute('vrm-poser', {});
             }
         } else {
             for (var el of document.querySelectorAll('[vrm]')) {
-                el.removeAttribute('vrm-ik-poser');
+                el.removeAttribute('vrm-poser');
             }
         }
     });
