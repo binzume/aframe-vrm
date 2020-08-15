@@ -288,7 +288,7 @@ AFRAME.registerComponent('vrm-poser', {
 		this.el.addEventListener('vrmload', this.onVrmLoaded);
 	},
 	onAvatarUpdated(avatar) {
-		this.remove();
+		this.removeHandles();
 		let size = 1;
 		let geometry = new THREE.BoxGeometry(size, size, size);
 		let material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
@@ -310,6 +310,7 @@ AFRAME.registerComponent('vrm-poser', {
 					let p = bone.parent.worldToLocal(targetEl.object3D.getWorldPosition(new THREE.Vector3())).normalize();
 					let q = new THREE.Quaternion().setFromUnitVectors(bone.position.clone().normalize(), p);
 					bone.parent.quaternion.multiply(q);
+					targetEl.object3D.quaternion.multiply(q);
 				}
 				bone.quaternion.copy(targetEl.object3D.getWorldQuaternion(q)).premultiply(bone.parent.getWorldQuaternion(q).inverse());
 				this.updateHandlePosition(bone);
@@ -318,12 +319,15 @@ AFRAME.registerComponent('vrm-poser', {
 				this.updateHandlePosition();
 			});
 			this.el.appendChild(targetEl);
-			this.binds.push([b, targetEl.object3D]);
+			this.binds.push([b, targetEl]);
 		}
 		this.updateHandlePosition();
 	},
 	remove() {
 		this.el.removeEventListener('vrmload', this.onVrmLoaded);
+		this.removeHandles();
+	},
+	removeHandles() {
 		this.binds.forEach(bind => this.el.removeChild(bind[1]));
 		this.binds = [];
 	},
@@ -334,8 +338,9 @@ AFRAME.registerComponent('vrm-poser', {
 			if (b == skip) {
 				return;
 			}
-			container.worldToLocal(b.getWorldPosition(t.position));
-			b.getWorldQuaternion(t.quaternion).premultiply(container.getWorldQuaternion(q).inverse());
+			let o = t.object3D;
+			container.worldToLocal(b.getWorldPosition(o.position));
+			b.getWorldQuaternion(o.quaternion).premultiply(container.getWorldQuaternion(q).inverse());
 		});
 
 	}
