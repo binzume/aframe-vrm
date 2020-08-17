@@ -2,6 +2,7 @@
 
 AFRAME.registerComponent('camera-control', {
     schema: {
+        homePosition: { type: 'vec3', default: { x: 0, y: 1.5, z: 0 } }
     },
     init() {
         this.dragging = false;
@@ -11,13 +12,17 @@ AFRAME.registerComponent('camera-control', {
         let lookAt = new THREE.Vector3(0, 1.5, 0);
         let rotation = new THREE.Euler(0, 0, 0, 'YXZ');
         let distance = 3;
+        this.el.sceneEl.addEventListener('exit-vr', ev => {
+            this.resetPosition();
+        });
+        this.resetPosition();
         let updateCamera = () => {
-            let targetObj = this.el.object3D;
+            let cameraObj = this.el.object3D;
             let cameraRot = new THREE.Quaternion().setFromEuler(rotation);
             let cameraVec = new THREE.Vector3(0, 0, 1).applyQuaternion(cameraRot).multiplyScalar(distance);
             let cameraPos = lookAt.clone().add(cameraVec);
-            targetObj.position.copy(targetObj.parent.worldToLocal(cameraPos));
-            targetObj.quaternion.copy(cameraRot.multiply(targetObj.parent.getWorldQuaternion(new THREE.Quaternion())));
+            cameraObj.position.copy(cameraObj.parent.worldToLocal(cameraPos));
+            cameraObj.quaternion.copy(cameraRot.multiply(cameraObj.parent.getWorldQuaternion(new THREE.Quaternion())));
         };
         this.onMouseMove = (ev) => {
             let targetObj = this.el.object3D;
@@ -52,6 +57,51 @@ AFRAME.registerComponent('camera-control', {
             updateCamera();
         });
 
+    },
+    resetPosition() {
+        if (!this.el.sceneEl.is('vr-mode')) {
+            this.el.setAttribute('position', this.data.homePosition);
+        }
+    }
+});
+
+AFRAME.registerComponent('pose-editor-window', {
+    schema: {
+    },
+    init() {
+        this.vrmEl = document.querySelector('[vrm]');
+        this.vrmEl.addEventListener('vrmload', (ev) => this.updateAvatar(ev.detail));
+        let listEl = this.el.querySelector('#item-list');
+        let list = this.list = listEl.components.xylist;
+        listEl.setAttribute('xylist', 'itemHeight', 0.5);
+        let self = this;
+        list.setAdapter({
+            create() {
+                let el = document.createElement('a-plane');
+                el.setAttribute('width', 3);
+                el.setAttribute('color', 'black');
+                el.setAttribute('xyrect', {});
+                let sliderEl = document.createElement('a-xyrange');
+                sliderEl.setAttribute('width', 1.5);
+                sliderEl.setAttribute('position', { x: 0.8, y: 0, z: 0.05 });
+                sliderEl.addEventListener('change', (ev) => {
+                    self.vrmEl.components['vrm'].setMorph(el.components.xylabel.data.value, ev.detail.value * 0.01);
+                });
+                el.appendChild(sliderEl);
+                return el;
+            },
+            bind(position, el, contents) {
+                el.setAttribute('xylabel', { value: contents[position], wrapCount: 16, renderingMode: 'canvas' });
+                el.querySelector('a-xyrange').value = self.vrmEl.components['vrm'].getMorphValue(contents[position]) * 100;
+            }
+        });
+    },
+    updateAvatar(vrm) {
+        this.vrm = vrm;
+        this.blendShapeNames = Object.keys(vrm.blendShapes);
+        this.list.setContents(this.blendShapeNames);
+    },
+    remove() {
     }
 });
 
@@ -88,6 +138,8 @@ window.addEventListener('DOMContentLoaded', (ev) => {
         document.querySelector('[vrm]').setAttribute('vrm', { 'src': models[ev.detail.index].src });
     });
 
+    let files = motions.map(path => { let m = path.match(/([^\/]+)\.\w+$/); return m ? m[1] : path }).join(',');
+    document.getElementById('animation-select').setAttribute('values', files);
     document.getElementById('animation-select').addEventListener('change', (ev) => {
         document.querySelector('[vrm]').setAttribute('vrm-bvh', { 'src': motions[ev.detail.index] });
     });

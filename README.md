@@ -14,8 +14,13 @@
 
 - vrm: Load vrm model
 - vrm-bvh: Play BVH motion
-- vrm-skeleton: Skeleton viewer
+- vrm-poser: pose editor
 - vrm-ik-poser: IK test [WIP]
+- vrm-skeleton: display skeleton
+
+# TODO
+
+https://github.com/pixiv/three-vrm を使う．
 
 # License
 

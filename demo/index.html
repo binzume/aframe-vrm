@@ -6,22 +6,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>VRM Test</title>
   <script src="https://binzume.github.io/aframe/dist/aframe-master.min.js"></script>
-  <script src="../../xylayout/dist/xylayout-all.min.js"></script>
+  <script src="https://binzume.github.io/aframe-xylayout/dist/xylayout-all.min.js"></script>
   <script src="../vrm.js"></script>
   <script src="demo.js"></script>
 </head>
 
 <body style="background-color: black; color:white;">
-  <a-scene fog="type: linear; color: #000; near:20;far:200;" renderer="antialias:true;">
-    <a-entity id="mouse-cursor" cursor="rayOrigin: mouse; fuse:false" raycaster="objects:.collidable;far:5500"></a-entity>
+  <a-scene fog="type: linear; color: #25a; near:20;far:100;">
+    <a-sky></a-sky>
+    <a-entity id="mouse-cursor" cursor="rayOrigin: mouse; fuse:false" raycaster="objects:.collidable"></a-entity>
 
-    <a-entity xy-drag-control="draggable:.stage" vrm="src:assets/AliciaSolid/AliciaSolid.vrm" vrm-bvh="" rotation="0 180 0">
-      <a-box class="stage collidable" width="0.3" depth="0.3" height="0.04" position="0 -0.03 0"></a-box>
-    </a-entity>
+    <!-- VRM avatar -->
+    <a-entity vrm="src:assets/AliciaSolid/AliciaSolid.vrm" vrm-bvh="" rotation="0 180 0"></a-entity>
 
-    <a-entity id="camera-rig" position-controls="axismove:x" position="0 0 3">
+    <a-entity id="camera-rig" position-controls="axismove:x" position="0 0 0.5">
 
-      <a-camera position="0 1.5 0" look-controls="enabled:false" wasd-controls="enabled:false" camera-control>
+      <a-camera look-controls="enabled:false" wasd-controls="enabled:false" camera-control="homePosition:0 1.5 3">
         <!-- Avatar control panel -->
         <a-xywindow position="-7 1 -9" title="Models" width="3" height="4" window-locator xycontainer="direction:column">
           <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
@@ -50,15 +50,16 @@
         </a-xywindow>
       </a-camera>
 
-      <a-entity laser-controls="hand: right" id="rightHand" raycaster="far:Infinity;objects:.collidable,.clickable,a-rounded">
-      </a-entity>
-      <a-entity laser-controls="hand: left" id="leftHand" raycaster="far:Infinity;objects:.collidable,.clickable,a-rounded">
-      </a-entity>
-      <!-- kbd -->
-      <a-entity position="0 0.5 -3">
-        <a-xykeyboard ime=true></a-xykeyboard>
-      </a-entity>
+      <a-entity laser-controls="hand: right" id="rightHand" raycaster="objects:.collidable"></a-entity>
+      <a-entity laser-controls="hand: left" id="leftHand" raycaster="objects:.collidable"></a-entity>
     </a-entity>
+
+    <!-- Bone/Shape panel -->
+    <a-xywindow position="7 1 -9" title="BlendShape" width="3" height="4" pose-editor-window window-locator xycontainer="direction:column">
+      <a-xyscroll width=3 height=4 scrollbar=false>
+        <a-entity id="item-list" xylist="" xyrect="width:3"></a-entity>
+      </a-xyscroll>
+    </a-xywindow>
 
   </a-scene>
 </body>

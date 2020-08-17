@@ -8,9 +8,6 @@ AFRAME.registerComponent('vrm', {
 	},
 	init() {
 		this.avatar = null;
-		this.lookAtTarget = null;
-
-		this.morph = {};
 	},
 	update(oldData) {
 		if (this.data.src !== oldData.src) {
@@ -19,7 +16,7 @@ AFRAME.registerComponent('vrm', {
 				let bones = {}; // VRMBoneName => Object3D
 				let blendShapes = {};
 				let mixer = new THREE.AnimationMixer(model);
-				this.avatar = { model: model, mixer: mixer, bones: bones, blendShapes: blendShapes };
+				this.avatar = { model: model, mixer: mixer, bones: bones, blendShapes: blendShapes, currentShape: {} };
 				this.el.setObject3D('avatar', model);
 
 				let vrmExt = gltf.userData?.gltfExtensions?.VRM;
@@ -67,8 +64,8 @@ AFRAME.registerComponent('vrm', {
 			return [];
 		}
 		return blend.binds.map(bind => {
-			let values = new Array(bind.target.morphTargetInfluences.length * times.length).fill(0);
-			for (let t = 0; t < times.length; t++) {
+			let values = new Array(bind.target.morphTargetInfluences.length * weights.length).fill(0);
+			for (let t = 0; t < weights.length; t++) {
 				values[t * bind.target.morphTargetInfluences.length + bind.index] = bind.weight * weights[t];
 			}
 			return new THREE.NumberKeyframeTrack(bind.target.name + '.morphTargetInfluences', times, values);
@@ -89,26 +86,56 @@ AFRAME.registerComponent('vrm', {
 		this.blinkAction = null;
 	},
 	setMorph(name, value) {
-		this.morph[name] = value;
-		let tracks = Object.keys(this.morph).reduce(
-			(tracks, n) => tracks.concat(this.makeBlendShapeTracks(n, [0], [this.morph[n]])),
-			[]);
+		this.avatar.currentShape[name] = value;
+		if (value == 0) {
+			delete this.avatar.currentShape[name];
+		}
+		// TODO: refactoring.
+		let trackdata = Object.entries(this.avatar.currentShape).reduce(
+			(data, [name, value]) => {
+				let weights = [value];
+				let blend = this.avatar.blendShapes[name];
+				if (!blend) {
+					return data;
+				}
+				blend.binds.forEach(bind => {
+					let tname = bind.target.name + '.morphTargetInfluences';
+					let values = data[tname] || (data[tname] = new Array(bind.target.morphTargetInfluences.length * weights.length).fill(0));
+					for (let t = 0; t < weights.length; t++) {
+						values[t * bind.target.morphTargetInfluences.length + bind.index] += bind.weight * weights[t];
+					}
+				});
+				return data;
+			},
+			{});
+		let tracks = Object.entries(trackdata).map(([tname, values]) => new THREE.NumberKeyframeTrack(tname, [0], values));
 		let clip = new THREE.AnimationClip('morph', undefined, tracks);
 		this.morphAction?.stop();
 		this.morphAction = this.avatar.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
 	},
+	getMorphValue(name) {
+		return this.avatar.currentShape[name] || 0;
+	},
 	resetMorph() {
-		this.morph = {};
 		this.morphAction?.stop();
 		this.morphAction = null;
+		if (this.avatar) {
+			this.avatar.currentShape = {};
+		}
 	},
 	tick(time, timeDelta) {
-		this.avatar?.mixer.update(timeDelta / 1000);
-		if (this.lookAtTarget && this.avatar?.firstPersonBone) {
-			let b = this.avatar.firstPersonBone;
+		if (!this.avatar) {
+			return;
+		}
+		this.avatar.mixer.update(timeDelta / 1000);
+		if (this.lookAtTarget) {
+			let b = this.avatar.firstPersonBone || this.avatar.bones['head'];
+			if (!b) {
+				return;
+			}
 			let targetPos = this.lookAtTarget.getWorldPosition(new THREE.Vector3());
 			b.worldToLocal(targetPos).normalize();
-			var rot = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), targetPos);
+			let rot = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), targetPos);
 			let angle = 2 * Math.acos(rot.w);
 			if (angle > Math.PI / 2) {
 				rot.set(0, 0, 0, 1);
@@ -253,12 +280,12 @@ AFRAME.registerComponent('vrm-skeleton', {
 	},
 	init() {
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
-			this.onAvatarUpdated(this.el.components.vrm.avatar);
+			this._onAvatarUpdated(this.el.components.vrm.avatar);
 		}
-		this.onVrmLoaded = (ev) => this.onAvatarUpdated(ev.detail);
+		this.onVrmLoaded = (ev) => this._onAvatarUpdated(ev.detail);
 		this.el.addEventListener('vrmload', this.onVrmLoaded);
 	},
-	onAvatarUpdated(avatar) {
+	_onAvatarUpdated(avatar) {
 		let scene = this.el.sceneEl.object3D;
 		if (this.helper) {
 			scene.remove(this.helper);
@@ -278,23 +305,68 @@ AFRAME.registerComponent('vrm-skeleton', {
 
 AFRAME.registerComponent('vrm-poser', {
 	schema: {
+		color: { default: '#00ff00' },
 	},
 	init() {
 		this.binds = [];
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
-			this.onAvatarUpdated(this.el.components.vrm.avatar);
+			this._onAvatarUpdated(this.el.components.vrm.avatar);
 		}
-		this.onVrmLoaded = (ev) => this.onAvatarUpdated(ev.detail);
+		this.onVrmLoaded = (ev) => this._onAvatarUpdated(ev.detail);
 		this.el.addEventListener('vrmload', this.onVrmLoaded);
 	},
-	onAvatarUpdated(avatar) {
-		this.removeHandles();
-		let size = 1;
-		let geometry = new THREE.BoxGeometry(size, size, size);
-		let material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+	remove() {
+		this.el.removeEventListener('vrmload', this.onVrmLoaded);
+		this._removeHandles();
+	},
+	getPoseData(exportMorph) {
+		if (!this.avatar) {
+			return;
+		}
+		let poseData = {}
+		poseData.bones = Object.keys(this.avatar.bones).map((name) =>
+			({ name: name, q: this.avatar.bones[name].quaternion.toArray() })
+		);
+		if (exportMorph) {
+			poseData.blendShape = Object.keys(this.avatar.currentShape).map((name) =>
+				({ name: name, value: this.avatar.currentShape[name] })
+			);
+		}
+		return poseData
+	},
+	setPoseData(pose) {
+		if (!this.avatar) {
+			return;
+		}
+		if (pose.bones) {
+			for (let boneParam of pose.bones) {
+				if (this.avatar.bones[boneParam.name]) {
+					this.avatar.bones[boneParam.name].quaternion.fromArray(boneParam.q);
+				}
+			}
+		}
+		if (pose.blendShape) {
+			for (let morph of pose.blendShape) {
+				this.avatar.setMorph(morph.name, morph.value)
+			}
+		}
+		this._updateHandlePosition();
+	},
+	_onAvatarUpdated(avatar) {
+		this._removeHandles();
+		this.avatar = avatar;
+		let geometry = new THREE.BoxGeometry(1, 1, 1);
+		let material = new THREE.MeshBasicMaterial({ color: new THREE.Color(this.data.color) });
+		let q0 = new THREE.Quaternion();
 		let q = new THREE.Quaternion();
-		for (let b of Object.values(avatar.bones)) {
-			var cube = new THREE.Mesh(geometry, material);
+		let _v0 = new THREE.Vector3();
+		let _v1 = new THREE.Vector3();
+		let _m = new THREE.Matrix4();
+		let rootNode = avatar.bones['hips'];
+		for (let name of Object.keys(avatar.bones)) {
+			let b = avatar.bones[name];
+			let isRoot = b == rootNode;
+			let cube = new THREE.Mesh(geometry, material);
 			material.depthTest = false;
 			material.transparent = true;
 			material.opacity = 0.4;
@@ -302,47 +374,60 @@ AFRAME.registerComponent('vrm-poser', {
 			targetEl.classList.add('collidable');
 			targetEl.setAttribute('xy-drag-control', {});
 			targetEl.setObject3D('handle', cube);
+			let targetObject = targetEl.object3D;
 			let minDist = b.children.reduce((d, b) => Math.min(d, b.position.length()), b.position.length());
-			targetEl.object3D.scale.multiplyScalar(Math.max(Math.min(minDist / 2, 0.05), 0.01));
-			let bone = b;
+			targetObject.scale.multiplyScalar(Math.max(Math.min(minDist / 2, 0.05), 0.01));
+			let node = b;
+			targetEl.addEventListener('mousedown', ev => {
+				this.el.emit('vrm-poser-select', { name: name, node: b });
+			});
 			targetEl.addEventListener('xy-drag', ev => {
-				if (b.parent.children.length == 1) {
-					let p = bone.parent.worldToLocal(targetEl.object3D.getWorldPosition(new THREE.Vector3())).normalize();
-					let q = new THREE.Quaternion().setFromUnitVectors(bone.position.clone().normalize(), p);
-					bone.parent.quaternion.multiply(q);
-					targetEl.object3D.quaternion.multiply(q);
+				if (isRoot) {
+					// TODO
+					let d = avatar.model.parent.worldToLocal(node.getWorldPosition(_v0)).sub(targetObject.position)
+					let q1 = targetObject.getWorldQuaternion(q0).premultiply(avatar.model.parent.getWorldQuaternion(q).inverse());
+					avatar.model.position.sub(d);
+					avatar.model.quaternion.copy(q1);
+					this._updateHandlePosition(node);
+					return;
 				}
-				bone.quaternion.copy(targetEl.object3D.getWorldQuaternion(q)).premultiply(bone.parent.getWorldQuaternion(q).inverse());
-				this.updateHandlePosition(bone);
+				node.parent.updateMatrixWorld(false);
+				targetObject.updateMatrixWorld(false);
+				_m.getInverse(node.parent.matrixWorld).multiply(targetObject.matrixWorld).decompose(_v0, node.quaternion, _v1);
+				if (b.parent.children.length == 1) {
+					q.setFromUnitVectors(_v1.copy(node.position).normalize(), _v0.normalize());
+					node.parent.quaternion.multiply(q);
+					targetObject.quaternion.multiply(q);
+				}
+				this._updateHandlePosition(node);
 			});
 			targetEl.addEventListener('xy-dragend', ev => {
-				this.updateHandlePosition();
+				this._updateHandlePosition();
 			});
 			this.el.appendChild(targetEl);
-			this.binds.push([b, targetEl]);
+			this.binds.push([node, targetObject]);
 		}
-		this.updateHandlePosition();
+		this._updateHandlePosition();
 	},
-	remove() {
-		this.el.removeEventListener('vrmload', this.onVrmLoaded);
-		this.removeHandles();
-	},
-	removeHandles() {
-		this.binds.forEach(bind => this.el.removeChild(bind[1]));
+	_removeHandles() {
+		this.binds.forEach(([b, t]) => {
+			this.el.removeChild(t.el);
+			t.el.destroy();
+		});
 		this.binds = [];
 	},
-	updateHandlePosition(skip) {
-		let q = new THREE.Quaternion();
+	_updateHandlePosition(skipNode) {
+		let _v = new THREE.Vector3();
 		let container = this.el.object3D;
-		this.binds.forEach(([b, t]) => {
-			if (b == skip) {
+		container.updateMatrixWorld(false);
+		let base = new THREE.Matrix4().getInverse(container.matrixWorld);
+		this.binds.forEach(([node, target]) => {
+			if (node == skipNode) {
 				return;
 			}
-			let o = t.object3D;
-			container.worldToLocal(b.getWorldPosition(o.position));
-			b.getWorldQuaternion(o.quaternion).premultiply(container.getWorldQuaternion(q).inverse());
+			node.updateMatrixWorld(false);
+			target.matrix.copy(node.matrixWorld).premultiply(base).decompose(target.position, target.quaternion, _v);
 		});
-
 	}
 });
 
@@ -358,12 +443,12 @@ AFRAME.registerComponent('vrm-ik-poser', {
 	init() {
 		this.targetEls = [];
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
-			this.onAvatarUpdated(this.el.components.vrm.avatar);
+			this._onAvatarUpdated(this.el.components.vrm.avatar);
 		}
-		this.onVrmLoaded = (ev) => this.onAvatarUpdated(ev.detail);
+		this.onVrmLoaded = (ev) => this._onAvatarUpdated(ev.detail);
 		this.el.addEventListener('vrmload', this.onVrmLoaded);
 	},
-	onAvatarUpdated(avatar) {
+	_onAvatarUpdated(avatar) {
 		for (let el of this.targetEls) {
 			this.el.removeChild(el);
 		}
