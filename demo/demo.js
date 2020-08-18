@@ -2,20 +2,20 @@
 
 AFRAME.registerComponent('camera-control', {
     schema: {
-        homePosition: { type: 'vec3', default: { x: 0, y: 1.5, z: 0 } }
+        homePosition: { type: 'vec3', default: { x: 0, y: 1.5, z: 0 } },
+        vrHomePosition: { type: 'vec3', default: { x: 0, y: 0, z: 0.5 } }
     },
     init() {
         this.dragging = false;
+        this.el.sceneEl.addEventListener('exit-vr', ev => this.resetPosition());
+        this.el.sceneEl.addEventListener('enter-vr', ev => this.resetPosition());
+        this.resetPosition();
         let cursorEl = document.getElementById('mouse-cursor');
         let canvasEl = this.el.sceneEl.canvas;
         let dragX = 0, dragY = 0;
-        let lookAt = new THREE.Vector3(0, 1.5, 0);
+        let lookAt = new THREE.Vector3(0, 1.6, 0);
         let rotation = new THREE.Euler(0, 0, 0, 'YXZ');
-        let distance = 3;
-        this.el.sceneEl.addEventListener('exit-vr', ev => {
-            this.resetPosition();
-        });
-        this.resetPosition();
+        let distance = lookAt.clone().sub(this.el.getAttribute('position')).length();
         let updateCamera = () => {
             let cameraObj = this.el.object3D;
             let cameraRot = new THREE.Quaternion().setFromEuler(rotation);
@@ -59,7 +59,9 @@ AFRAME.registerComponent('camera-control', {
 
     },
     resetPosition() {
-        if (!this.el.sceneEl.is('vr-mode')) {
+        if (this.el.sceneEl.is('vr-mode')) {
+            this.el.setAttribute('position', this.data.vrHomePosition);
+        } else {
             this.el.setAttribute('position', this.data.homePosition);
         }
     }
@@ -79,21 +81,26 @@ AFRAME.registerComponent('pose-editor-window', {
             create() {
                 let el = document.createElement('a-plane');
                 el.setAttribute('width', 3);
+                el.setAttribute('height', 0.48);
                 el.setAttribute('color', 'black');
                 el.setAttribute('xyrect', {});
                 let sliderEl = document.createElement('a-xyrange');
                 sliderEl.setAttribute('width', 1.5);
                 sliderEl.setAttribute('position', { x: 0.8, y: 0, z: 0.05 });
                 sliderEl.addEventListener('change', (ev) => {
-                    self.vrmEl.components['vrm'].setMorph(el.components.xylabel.data.value, ev.detail.value * 0.01);
+                    self.vrm.setMorph(el.components.xylabel.data.value, ev.detail.value * 0.01);
                 });
                 el.appendChild(sliderEl);
                 return el;
             },
             bind(position, el, contents) {
                 el.setAttribute('xylabel', { value: contents[position], wrapCount: 16, renderingMode: 'canvas' });
-                el.querySelector('a-xyrange').value = self.vrmEl.components['vrm'].getMorphValue(contents[position]) * 100;
+                el.querySelector('a-xyrange').value = self.vrm.getMorphValue(contents[position]) * 100;
             }
+        });
+        this.el.querySelector('#reset-all-morph').addEventListener('click', (ev) => {
+            self.vrm.resetAllMorph();
+            this.list.setContents(this.blendShapeNames);
         });
     },
     updateAvatar(vrm) {
@@ -164,7 +171,7 @@ window.addEventListener('DOMContentLoaded', (ev) => {
 
     document.getElementById('lookat-toggle').addEventListener('change', (ev) => {
         for (var el of document.querySelectorAll('[vrm]')) {
-            el.components.vrm.lookAtTarget = ev.detail.value ? el.sceneEl.camera : null;
+            el.components.vrm.avatar.lookAtTarget = ev.detail.value ? el.sceneEl.camera : null;
         }
     });
 

@@ -1,5 +1,145 @@
 'use strict';
 
+class VRMAvatar {
+	constructor() {
+		this.model = null;
+		this.mixer = null;
+		this.bones = {};
+		this.blendShapes = {};
+		this.currentShape = {};
+		this.identQ = new THREE.Quaternion();
+		this.zV = new THREE.Vector3(0, 0, -1);
+		this.tmpQ0 = new THREE.Quaternion();
+		this.tmpV0 = new THREE.Vector3();
+	}
+	async init(gltf) {
+		let vrmExt = gltf.userData?.gltfExtensions?.VRM;
+		this.model = gltf.scene;
+		this.mixer = new THREE.AnimationMixer(this.model);
+		if (!vrmExt) {
+			console.log('not vrm');
+			this.model.skeleton = new THREE.Skeleton([]);
+			return this;
+		}
+		let bones = this.bones; // VRMBoneName => Object3D
+		let blendShapes = this.blendShapes;
+		await Promise.all(
+			Object.values(vrmExt.humanoid.humanBones).map(async (humanBone) => {
+				bones[humanBone.bone] = await gltf.parser.getDependency('node', humanBone.node);
+			})
+		);
+		vrmExt.blendShapeMaster.blendShapeGroups.forEach(bg => {
+			let binds = bg.binds.flatMap(bind => {
+				let mesh = gltf.parser.json.meshes[bind.mesh];
+				if (mesh.primitives.length == 1) {
+					let node = gltf.parser.json.nodes.find(n => n.mesh === bind.mesh);
+					let obj = gltf.scene.getObjectByName(node.name.replace(' ', '_').replace('.', ''), true);
+					return [{ target: obj, index: bind.index, weight: bind.weight / 100 }];
+				}
+				return mesh.primitives.map((p, i) =>
+					({ target: gltf.scene.getObjectByName(mesh.name + '_' + i, true), index: bind.index, weight: bind.weight / 100 })
+				);
+			});
+			blendShapes[(bg.presetName || bg.name).toUpperCase()] = { binds: binds };
+		});
+		if (vrmExt.firstPerson?.firstPersonBone) {
+			this.firstPersonBone = await gltf.parser.getDependency('node', vrmExt.firstPerson.firstPersonBone);
+		}
+		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
+		return this;
+	}
+	tick(timeDelta) {
+		this.mixer.update(timeDelta / 1000);
+		if (this.lookAtTarget) {
+			let b = this.firstPersonBone || this.bones['head'];
+			if (!b) {
+				return;
+			}
+			let targetDirection = b.worldToLocal(this.lookAtTarget.getWorldPosition(this.tmpV0)).normalize();
+			let rot = this.tmpQ0.setFromUnitVectors(this.zV, targetDirection);
+			let angle = 2 * Math.acos(rot.w);
+			if (angle > Math.PI / 2) {
+				rot = this.identQ;
+			} else if (angle > Math.PI / 4) {
+				rot.slerp(this.identQ, 1 - Math.PI / 4 / angle);
+			}
+			b.quaternion.slerp(rot, 0.08);
+		}
+	}
+	setMorph(name, value) {
+		this.currentShape[name] = value;
+		if (value == 0) {
+			delete this.currentShape[name];
+		}
+		this._morphAction()
+	}
+	getMorphValue(name) {
+		return this.currentShape[name] || 0;
+	}
+	resetAllMorph() {
+		this.currentShape = {};
+		this._morphAction();
+	}
+	startBlink(blinkInterval) {
+		if (this.animatedMorph) {
+			return;
+		}
+		this.animatedMorph = {
+			name: 'BLINK',
+			times: [0, blinkInterval - 0.2, blinkInterval - 0.1, blinkInterval],
+			values: [0, 0, 1, 0]
+		};
+		this._morphAction();
+	}
+	stopBlink() {
+		this.animatedMorph = null;
+		this._morphAction();
+	}
+	_morphAction() {
+		// TODO: refactoring. use THREE.AnimationBlendMode.
+		let times = [0];
+		if (this.animatedMorph) {
+			times = this.animatedMorph.times;
+			this.currentShape[this.animatedMorph.name] = this.currentShape[this.animatedMorph.name] || 0;
+		}
+		let trackdata = Object.entries(this.currentShape).reduce(
+			(data, [name, value]) => {
+				let blend = this.blendShapes[name];
+				if (!blend) {
+					return data;
+				}
+				let weights = new Array(times.length).fill(value);
+				if (this.animatedMorph?.name == name) {
+					weights = this.animatedMorph.values.map(w => Math.max(w, value));
+				}
+				blend.binds.forEach(bind => {
+					let tname = bind.target.name;
+					let values = data[tname] || (data[tname] = new Array(bind.target.morphTargetInfluences.length * weights.length).fill(0));
+					for (let t = 0; t < weights.length; t++) {
+						values[t * bind.target.morphTargetInfluences.length + bind.index] = bind.weight * weights[t];
+					}
+				});
+				return data;
+			},
+			{});
+		let tracks = Object.entries(trackdata).map(([tname, values]) =>
+			new THREE.NumberKeyframeTrack(tname + '.morphTargetInfluences', times, values));
+		if (this.morphAction) {
+			let action = this.morphAction;
+			setTimeout(() => action.stop(), 0);
+		}
+		if (tracks.length == 0) {
+			this.morphAction = null;
+			return;
+		}
+		let clip = new THREE.AnimationClip('morph', undefined, tracks);
+		this.morphAction = this.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
+	}
+	destroy() {
+		this.stopBlink();
+	}
+}
+
 AFRAME.registerComponent('vrm', {
 	schema: {
 		src: { default: '' },
@@ -12,143 +152,27 @@ AFRAME.registerComponent('vrm', {
 	update(oldData) {
 		if (this.data.src !== oldData.src) {
 			new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(this.data.src, async (gltf) => {
-				let model = gltf.scene;
-				let bones = {}; // VRMBoneName => Object3D
-				let blendShapes = {};
-				let mixer = new THREE.AnimationMixer(model);
-				this.avatar = { model: model, mixer: mixer, bones: bones, blendShapes: blendShapes, currentShape: {} };
-				this.el.setObject3D('avatar', model);
-
-				let vrmExt = gltf.userData?.gltfExtensions?.VRM;
-				if (vrmExt) {
-					await Promise.all(
-						Object.values(vrmExt.humanoid.humanBones).map(async (humanBone) => {
-							bones[humanBone.bone] = await gltf.parser.getDependency('node', humanBone.node);
-						})
-					);
-					vrmExt.blendShapeMaster.blendShapeGroups.forEach(bg => {
-						let binds = bg.binds.flatMap(bind => {
-							let mesh = gltf.parser.json.meshes[bind.mesh];
-							if (mesh.primitives.length == 1) {
-								let node = gltf.parser.json.nodes.find(n => n.mesh === bind.mesh);
-								let obj = gltf.scene.getObjectByName(node.name.replace(' ', '_').replace('.', ''), true);
-								return [{ target: obj, index: bind.index, weight: bind.weight / 100 }];
-							}
-							return mesh.primitives.map((p, i) =>
-								({ target: gltf.scene.getObjectByName(mesh.name + '_' + i, true), index: bind.index, weight: bind.weight / 100 })
-							);
-						});
-						blendShapes[bg.name.toUpperCase()] = { binds: binds };
-					});
-					if (vrmExt.firstPerson?.firstPersonBone) {
-						this.avatar.firstPersonBone = await gltf.parser.getDependency('node', vrmExt.firstPerson.firstPersonBone);
-					}
-				}
-				model.skeleton = new THREE.Skeleton(Object.values(bones));
+				this.avatar = await new VRMAvatar().init(gltf);
+				this.el.setObject3D('avatar', this.avatar.model);
 				this.el.emit('vrmload', this.avatar, false);
-				this.blinkAction = null;
 				if (this.data.blink) {
-					this.startBlink();
+					this.avatar.startBlink(this.data.blinkInterval);
 				}
 			});
 		}
-		if (this.avatar && this.data.blink) {
-			this.startBlink();
+		if (this.data.blink) {
+			this.avatar?.startBlink(this.data.blinkInterval);
 		} else {
-			this.stopBlink();
-		}
-	},
-	makeBlendShapeTracks(name, times, weights) {
-		let blend = this.avatar.blendShapes[name];
-		if (!blend) {
-			return [];
-		}
-		return blend.binds.map(bind => {
-			let values = new Array(bind.target.morphTargetInfluences.length * weights.length).fill(0);
-			for (let t = 0; t < weights.length; t++) {
-				values[t * bind.target.morphTargetInfluences.length + bind.index] = bind.weight * weights[t];
-			}
-			return new THREE.NumberKeyframeTrack(bind.target.name + '.morphTargetInfluences', times, values);
-		});
-	},
-	startBlink() {
-		if (this.blinkAction) {
-			return;
-		}
-		let duration = this.data.blinkInterval;
-		let tt = [0, duration - 0.2, duration - 0.1, duration];
-		let ww = [0, 0, 1, 0];
-		let clip = new THREE.AnimationClip('blink', undefined, this.makeBlendShapeTracks('BLINK', tt, ww));
-		this.blinkAction = this.avatar.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
-	},
-	stopBlink() {
-		this.blinkAction?.stop();
-		this.blinkAction = null;
-	},
-	setMorph(name, value) {
-		this.avatar.currentShape[name] = value;
-		if (value == 0) {
-			delete this.avatar.currentShape[name];
-		}
-		// TODO: refactoring.
-		let trackdata = Object.entries(this.avatar.currentShape).reduce(
-			(data, [name, value]) => {
-				let weights = [value];
-				let blend = this.avatar.blendShapes[name];
-				if (!blend) {
-					return data;
-				}
-				blend.binds.forEach(bind => {
-					let tname = bind.target.name + '.morphTargetInfluences';
-					let values = data[tname] || (data[tname] = new Array(bind.target.morphTargetInfluences.length * weights.length).fill(0));
-					for (let t = 0; t < weights.length; t++) {
-						values[t * bind.target.morphTargetInfluences.length + bind.index] += bind.weight * weights[t];
-					}
-				});
-				return data;
-			},
-			{});
-		let tracks = Object.entries(trackdata).map(([tname, values]) => new THREE.NumberKeyframeTrack(tname, [0], values));
-		let clip = new THREE.AnimationClip('morph', undefined, tracks);
-		this.morphAction?.stop();
-		this.morphAction = this.avatar.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
-	},
-	getMorphValue(name) {
-		return this.avatar.currentShape[name] || 0;
-	},
-	resetMorph() {
-		this.morphAction?.stop();
-		this.morphAction = null;
-		if (this.avatar) {
-			this.avatar.currentShape = {};
+			this.avatar?.stopBlink();
 		}
 	},
 	tick(time, timeDelta) {
-		if (!this.avatar) {
-			return;
-		}
-		this.avatar.mixer.update(timeDelta / 1000);
-		if (this.lookAtTarget) {
-			let b = this.avatar.firstPersonBone || this.avatar.bones['head'];
-			if (!b) {
-				return;
-			}
-			let targetPos = this.lookAtTarget.getWorldPosition(new THREE.Vector3());
-			b.worldToLocal(targetPos).normalize();
-			let rot = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), targetPos);
-			let angle = 2 * Math.acos(rot.w);
-			if (angle > Math.PI / 2) {
-				rot.set(0, 0, 0, 1);
-			} else if (angle > Math.PI / 4) {
-				rot.slerp(new THREE.Quaternion(), 1 - Math.PI / 4 / angle);
-			}
-			b.quaternion.slerp(rot, 0.05);
-		}
+		this.avatar?.tick(timeDelta);
 	},
 	remove() {
 		if (this.avatar) {
-			this.stopBlink();
 			this.el.removeObject3D('avatar', this.avatar.model);
+			this.avatar.destroy();
 		}
 	}
 });
