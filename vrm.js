@@ -2,22 +2,22 @@
 
 class VRMAvatar {
 	constructor() {
+		this.isVRM = false;
 		this.model = null;
 		this.mixer = null;
 		this.bones = {};
 		this.blendShapes = {};
-		this.currentShape = {};
-		this.identQ = new THREE.Quaternion();
-		this.zV = new THREE.Vector3(0, 0, -1);
-		this.tmpQ0 = new THREE.Quaternion();
-		this.tmpV0 = new THREE.Vector3();
+		this._currentShape = {};
+		this._identQ = new THREE.Quaternion();
+		this._zV = new THREE.Vector3(0, 0, -1);
+		this._tmpQ0 = new THREE.Quaternion();
+		this._tmpV0 = new THREE.Vector3();
 	}
 	async init(gltf) {
 		let vrmExt = gltf.userData?.gltfExtensions?.VRM;
 		this.model = gltf.scene;
 		this.mixer = new THREE.AnimationMixer(this.model);
 		if (!vrmExt) {
-			console.log('not vrm');
 			this.model.skeleton = new THREE.Skeleton([]);
 			return this;
 		}
@@ -46,6 +46,7 @@ class VRMAvatar {
 			this.firstPersonBone = await gltf.parser.getDependency('node', vrmExt.firstPerson.firstPersonBone);
 		}
 		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
+		this.isVRM = true;
 		return this;
 	}
 	tick(timeDelta) {
@@ -55,30 +56,30 @@ class VRMAvatar {
 			if (!b) {
 				return;
 			}
-			let targetDirection = b.worldToLocal(this.lookAtTarget.getWorldPosition(this.tmpV0)).normalize();
-			let rot = this.tmpQ0.setFromUnitVectors(this.zV, targetDirection);
+			let targetDirection = b.worldToLocal(this.lookAtTarget.getWorldPosition(this._tmpV0)).normalize();
+			let rot = this._tmpQ0.setFromUnitVectors(this._zV, targetDirection);
 			let angle = 2 * Math.acos(rot.w);
 			if (angle > Math.PI / 2) {
-				rot = this.identQ;
+				rot = this._identQ;
 			} else if (angle > Math.PI / 4) {
-				rot.slerp(this.identQ, 1 - Math.PI / 4 / angle);
+				rot.slerp(this._identQ, 1 - Math.PI / 4 / angle);
 			}
 			b.quaternion.slerp(rot, 0.08);
 		}
 	}
-	setMorph(name, value) {
-		this.currentShape[name] = value;
+	setBlendShapeWeight(name, value) {
+		this._currentShape[name] = value;
 		if (value == 0) {
-			delete this.currentShape[name];
+			delete this._currentShape[name];
 		}
-		this._morphAction()
+		this._updateBlendShape()
 	}
-	getMorphValue(name) {
-		return this.currentShape[name] || 0;
+	getBlendShapeWeight(name) {
+		return this._currentShape[name] || 0;
 	}
-	resetAllMorph() {
-		this.currentShape = {};
-		this._morphAction();
+	resetBlendShape() {
+		this._currentShape = {};
+		this._updateBlendShape();
 	}
 	startBlink(blinkInterval) {
 		if (this.animatedMorph) {
@@ -89,20 +90,20 @@ class VRMAvatar {
 			times: [0, blinkInterval - 0.2, blinkInterval - 0.1, blinkInterval],
 			values: [0, 0, 1, 0]
 		};
-		this._morphAction();
+		this._updateBlendShape();
 	}
 	stopBlink() {
 		this.animatedMorph = null;
-		this._morphAction();
+		this._updateBlendShape();
 	}
-	_morphAction() {
+	_updateBlendShape() {
 		// TODO: refactoring. use THREE.AnimationBlendMode.
 		let times = [0];
 		if (this.animatedMorph) {
 			times = this.animatedMorph.times;
-			this.currentShape[this.animatedMorph.name] = this.currentShape[this.animatedMorph.name] || 0;
+			this._currentShape[this.animatedMorph.name] = this._currentShape[this.animatedMorph.name] || 0;
 		}
-		let trackdata = Object.entries(this.currentShape).reduce(
+		let trackdata = Object.entries(this._currentShape).reduce(
 			(data, [name, value]) => {
 				let blend = this.blendShapes[name];
 				if (!blend) {
@@ -145,26 +146,28 @@ AFRAME.registerComponent('vrm', {
 		src: { default: '' },
 		blink: { default: true },
 		blinkInterval: { default: 5 },
+		lookAt: { type: 'selector' },
 	},
 	init() {
 		this.avatar = null;
 	},
 	update(oldData) {
-		if (this.data.src !== oldData.src) {
-			new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(this.data.src, async (gltf) => {
+		let el = this.el;
+		let data = this.data;
+		if (data.src !== oldData.src) {
+			this.remove();
+			new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(data.src, async (gltf) => {
 				this.avatar = await new VRMAvatar().init(gltf);
-				this.el.setObject3D('avatar', this.avatar.model);
-				this.el.emit('vrmload', this.avatar, false);
-				if (this.data.blink) {
-					this.avatar.startBlink(this.data.blinkInterval);
-				}
+				el.setObject3D('avatar', this.avatar.model);
+				el.emit('vrmload', this.avatar, false); // Deprecated
+				el.emit('model-loaded', { format: 'vrm', model: this.avatar.model, avatar: this.avatar }, false);
+				this._updateAvatar();
+			}, undefined, (error) => {
+				el.emit('model-error', { format: 'vrm', src: data.src }, false);
+				console.log(error);
 			});
 		}
-		if (this.data.blink) {
-			this.avatar?.startBlink(this.data.blinkInterval);
-		} else {
-			this.avatar?.stopBlink();
-		}
+		this._updateAvatar();
 	},
 	tick(time, timeDelta) {
 		this.avatar?.tick(timeDelta);
@@ -174,12 +177,28 @@ AFRAME.registerComponent('vrm', {
 			this.el.removeObject3D('avatar', this.avatar.model);
 			this.avatar.destroy();
 		}
+	},
+	_updateAvatar() {
+		if (!this.avatar) {
+			return;
+		}
+		if (this.data.lookAt?.tagName == 'A-CAMERA') {
+			this.avatar.lookAtTarget = this.el.sceneEl.camera;
+		} else {
+			this.avatar.lookAtTarget = this.data.lookAt?.object3D;
+		}
+		if (this.data.blink) {
+			this.avatar.startBlink(this.data.blinkInterval);
+		} else {
+			this.avatar.stopBlink();
+		}
 	}
 });
 
 AFRAME.registerComponent('vrm-bvh', {
 	schema: {
 		src: { default: '' },
+		convertBone: { default: true },
 	},
 	init() {
 		this.avatar = null;
@@ -187,14 +206,14 @@ AFRAME.registerComponent('vrm-bvh', {
 			this.avatar = this.el.components.vrm.avatar;
 		}
 		this.onVrmLoaded = (ev) => {
-			this.avatar = ev.detail;
+			this.avatar = ev.detail.avatar;
 			if (this.data.src != '') {
 				this._loadBVH(this.data.src, THREE.LoopRepeat);
 			} else {
 				this.playTestMotion();
 			}
 		};
-		this.el.addEventListener('vrmload', this.onVrmLoaded);
+		this.el.addEventListener('model-loaded', this.onVrmLoaded);
 	},
 	update(oldData) {
 		if (oldData.src != this.data.src && this.avatar) {
@@ -250,37 +269,39 @@ AFRAME.registerComponent('vrm-bvh', {
 			if (!this.avatar) {
 				return;
 			}
-			result.clip.tracks.forEach(t => {
-				// '.bones[Chest].quaternion'/
-				t.name = t.name.replace(/bones\[(\w+)\]/, (m, name) => {
-					name = name.replace('Spin1', 'Spin');
-					name = name.replace('Chest1', 'Chest');
-					name = name.replace('Chest2', 'UpperChest');
-					name = name.replace('UpLeg', 'UpperLeg');
-					name = name.replace('LeftLeg', 'LeftLowerLeg');
-					name = name.replace('RightLeg', 'RightLowerLeg');
-					name = name.replace('ForeArm', 'UpperArm');
-					name = name.replace('LeftArm', 'LeftLowerArm');
-					name = name.replace('RightArm', 'RightLowerArm');
-					name = name.replace('Collar', 'Shoulder');
-					name = name.replace('Elbow', 'LowerArm');
-					name = name.replace('Wrist', 'Hand');
-					name = name.replace('LeftHip', 'LeftUpperLeg');
-					name = name.replace('RightHip', 'RightUpperLeg');
-					name = name.replace('Knee', 'LowerLeg');
-					name = name.replace('Ankle', 'Foot');
-					let bone = this.avatar.bones[name.charAt(0).toLowerCase() + name.slice(1)];
-					return 'bones[' + (bone != null ? bone.name : 'NOT_FOUND') + ']';
+			if (this.data.convertBone) {
+				result.clip.tracks.forEach(t => {
+					// '.bones[Chest].quaternion'/
+					t.name = t.name.replace(/bones\[(\w+)\]/, (m, name) => {
+						name = name.replace('Spin1', 'Spin');
+						name = name.replace('Chest1', 'Chest');
+						name = name.replace('Chest2', 'UpperChest');
+						name = name.replace('UpLeg', 'UpperLeg');
+						name = name.replace('LeftLeg', 'LeftLowerLeg');
+						name = name.replace('RightLeg', 'RightLowerLeg');
+						name = name.replace('ForeArm', 'UpperArm');
+						name = name.replace('LeftArm', 'LeftLowerArm');
+						name = name.replace('RightArm', 'RightLowerArm');
+						name = name.replace('Collar', 'Shoulder');
+						name = name.replace('Elbow', 'LowerArm');
+						name = name.replace('Wrist', 'Hand');
+						name = name.replace('LeftHip', 'LeftUpperLeg');
+						name = name.replace('RightHip', 'RightUpperLeg');
+						name = name.replace('Knee', 'LowerLeg');
+						name = name.replace('Ankle', 'Foot');
+						let bone = this.avatar.bones[name.charAt(0).toLowerCase() + name.slice(1)];
+						return 'bones[' + (bone != null ? bone.name : 'NOT_FOUND') + ']';
+					});
+					if (t.name.match(/quaternion/)) {
+						t.values = t.values.map((v, i) => i % 2 === 0 ? -v : v);
+					}
+					t.name = t.name.replace('ToeBase', 'Foot');
+					if (t.name.match(/position/)) {
+						t.values = t.values.map((v, i) => (i % 3 === 1 ? v : -v) * 0.09); // TODO
+					}
 				});
-				if (t.name.match(/quaternion/)) {
-					t.values = t.values.map((v, i) => i % 2 === 0 ? -v : v);
-				}
-				t.name = t.name.replace('ToeBase', 'Foot');
-				if (t.name.match(/position/)) {
-					t.values = t.values.map((v, i) => (i % 3 === 1 ? v : -v) * 0.09); // TODO
-				}
-			});
-			result.clip.tracks = result.clip.tracks.filter(t => !t.name.match(/NOT_FOUND/));
+				result.clip.tracks = result.clip.tracks.filter(t => !t.name.match(/NOT_FOUND/));
+			}
 			result.clip.tracks = result.clip.tracks.filter(t => !t.name.match(/position/) || t.name.match(this.avatar.bones.hips.name));
 			this.clip = result.clip;
 			this.animation = this.avatar.mixer.clipAction(result.clip).setLoop(loop).setEffectiveWeight(1.0).play();
@@ -293,7 +314,7 @@ AFRAME.registerComponent('vrm-bvh', {
 		}
 	},
 	remove() {
-		this.el.removeEventListener('vrmload', this.onVrmLoaded);
+		this.el.removeEventListener('model-loaded', this.onVrmLoaded);
 		this.stopAnimation();
 		this.avatar = null;
 	}
@@ -306,8 +327,8 @@ AFRAME.registerComponent('vrm-skeleton', {
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
 			this._onAvatarUpdated(this.el.components.vrm.avatar);
 		}
-		this.onVrmLoaded = (ev) => this._onAvatarUpdated(ev.detail);
-		this.el.addEventListener('vrmload', this.onVrmLoaded);
+		this.onVrmLoaded = (ev) => this._onAvatarUpdated(ev.detail.avatar);
+		this.el.addEventListener('model-loaded', this.onVrmLoaded);
 	},
 	_onAvatarUpdated(avatar) {
 		let scene = this.el.sceneEl.object3D;
@@ -318,14 +339,13 @@ AFRAME.registerComponent('vrm-skeleton', {
 		scene.add(this.helper);
 	},
 	remove() {
-		this.el.removeEventListener('vrmload', this.onVrmLoaded);
+		this.el.removeEventListener('model-loaded', this.onVrmLoaded);
 		if (this.helper) {
 			let scene = this.el.sceneEl.object3D;
 			scene.remove(this.helper);
 		}
 	}
 });
-
 
 AFRAME.registerComponent('vrm-poser', {
 	schema: {
@@ -336,11 +356,11 @@ AFRAME.registerComponent('vrm-poser', {
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
 			this._onAvatarUpdated(this.el.components.vrm.avatar);
 		}
-		this.onVrmLoaded = (ev) => this._onAvatarUpdated(ev.detail);
-		this.el.addEventListener('vrmload', this.onVrmLoaded);
+		this.onVrmLoaded = (ev) => this._onAvatarUpdated(ev.detail.avatar);
+		this.el.addEventListener('model-loaded', this.onVrmLoaded);
 	},
 	remove() {
-		this.el.removeEventListener('vrmload', this.onVrmLoaded);
+		this.el.removeEventListener('model-loaded', this.onVrmLoaded);
 		this._removeHandles();
 	},
 	getPoseData(exportMorph) {
@@ -352,8 +372,8 @@ AFRAME.registerComponent('vrm-poser', {
 			({ name: name, q: this.avatar.bones[name].quaternion.toArray() })
 		);
 		if (exportMorph) {
-			poseData.blendShape = Object.keys(this.avatar.currentShape).map((name) =>
-				({ name: name, value: this.avatar.currentShape[name] })
+			poseData.blendShape = Object.keys(this.avatar.blendShapes).map((name) =>
+				({ name: name, value: this.avatar.getBlendShapeWeight(name) })
 			);
 		}
 		return poseData
@@ -371,7 +391,7 @@ AFRAME.registerComponent('vrm-poser', {
 		}
 		if (pose.blendShape) {
 			for (let morph of pose.blendShape) {
-				this.avatar.setMorph(morph.name, morph.value)
+				this.avatar.setBlendShapeWeight(morph.name, morph.value)
 			}
 		}
 		this._updateHandlePosition();
@@ -469,8 +489,8 @@ AFRAME.registerComponent('vrm-ik-poser', {
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
 			this._onAvatarUpdated(this.el.components.vrm.avatar);
 		}
-		this.onVrmLoaded = (ev) => this._onAvatarUpdated(ev.detail);
-		this.el.addEventListener('vrmload', this.onVrmLoaded);
+		this.onVrmLoaded = (ev) => this._onAvatarUpdated(ev.detail.avatar);
+		this.el.addEventListener('model-loaded', this.onVrmLoaded);
 	},
 	_onAvatarUpdated(avatar) {
 		for (let el of this.targetEls) {
@@ -588,7 +608,7 @@ AFRAME.registerComponent('vrm-ik-poser', {
 		}
 	},
 	remove() {
-		this.el.removeEventListener('vrmload', this.onVrmLoaded);
+		this.el.removeEventListener('model-loaded', this.onVrmLoaded);
 		for (let el of this.targetEls) {
 			this.el.removeChild(el);
 		}

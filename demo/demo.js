@@ -2,7 +2,7 @@
 
 AFRAME.registerComponent('camera-control', {
     schema: {
-        homePosition: { type: 'vec3', default: { x: 0, y: 1.5, z: 0 } },
+        homePosition: { type: 'vec3', default: { x: 0, y: 0, z: 4 } },
         vrHomePosition: { type: 'vec3', default: { x: 0, y: 0, z: 0.5 } }
     },
     init() {
@@ -13,7 +13,7 @@ AFRAME.registerComponent('camera-control', {
         let cursorEl = document.getElementById('mouse-cursor');
         let canvasEl = this.el.sceneEl.canvas;
         let dragX = 0, dragY = 0;
-        let lookAt = new THREE.Vector3(0, 1.6, 0);
+        let lookAt = new THREE.Vector3(0, 0, 0);
         let rotation = new THREE.Euler(0, 0, 0, 'YXZ');
         let distance = lookAt.clone().sub(this.el.getAttribute('position')).length();
         let updateCamera = () => {
@@ -72,10 +72,9 @@ AFRAME.registerComponent('pose-editor-window', {
     },
     init() {
         this.vrmEl = document.querySelector('[vrm]');
-        this.vrmEl.addEventListener('vrmload', (ev) => this.updateAvatar(ev.detail));
+        this.vrmEl.addEventListener('model-loaded', (ev) => this.updateAvatar(ev.detail.avatar));
         let listEl = this.el.querySelector('#item-list');
         let list = this.list = listEl.components.xylist;
-        listEl.setAttribute('xylist', 'itemHeight', 0.5);
         let self = this;
         list.setAdapter({
             create() {
@@ -88,18 +87,18 @@ AFRAME.registerComponent('pose-editor-window', {
                 sliderEl.setAttribute('width', 1.5);
                 sliderEl.setAttribute('position', { x: 0.8, y: 0, z: 0.05 });
                 sliderEl.addEventListener('change', (ev) => {
-                    self.vrm.setMorph(el.components.xylabel.data.value, ev.detail.value * 0.01);
+                    self.vrm.setBlendShapeWeight(el.components.xylabel.data.value, ev.detail.value * 0.01);
                 });
                 el.appendChild(sliderEl);
                 return el;
             },
             bind(position, el, contents) {
                 el.setAttribute('xylabel', { value: contents[position], wrapCount: 16, renderingMode: 'canvas' });
-                el.querySelector('a-xyrange').value = self.vrm.getMorphValue(contents[position]) * 100;
+                el.querySelector('a-xyrange').value = self.vrm.getBlendShapeWeight(contents[position]) * 100;
             }
         });
         this.el.querySelector('#reset-all-morph').addEventListener('click', (ev) => {
-            self.vrm.resetAllMorph();
+            self.vrm.resetBlendShape();
             this.list.setContents(this.blendShapeNames);
         });
     },
@@ -126,7 +125,6 @@ window.addEventListener('DOMContentLoaded', (ev) => {
     ];
     let listEl = document.getElementById('model-list');
     let list = listEl.components.xylist;
-    listEl.setAttribute('xylist', 'itemHeight', 0.5);
     list.setAdapter({
         create(parent) {
             let el = document.createElement('a-plane');
@@ -171,7 +169,7 @@ window.addEventListener('DOMContentLoaded', (ev) => {
 
     document.getElementById('lookat-toggle').addEventListener('change', (ev) => {
         for (var el of document.querySelectorAll('[vrm]')) {
-            el.components.vrm.avatar.lookAtTarget = ev.detail.value ? el.sceneEl.camera : null;
+            el.setAttribute('vrm', 'lookAt', ev.detail.value ? 'a-camera' : null);
         }
     });
 

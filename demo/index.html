@@ -16,26 +16,27 @@
     <a-sky></a-sky>
     <a-entity id="mouse-cursor" cursor="rayOrigin: mouse; fuse:false" raycaster="objects:.collidable"></a-entity>
 
+    <a-plane id='ground' wireframe='true' width='10' height='10' segments-height='10' segments-width='10' rotation='90 0 0'></a-plane>
+
     <!-- VRM avatar -->
-    <a-entity vrm="src:assets/AliciaSolid/AliciaSolid.vrm" vrm-bvh="" rotation="0 180 0"></a-entity>
+    <a-entity vrm="src:assets/AliciaSolid/AliciaSolid.vrm;lookAt:a-camera" vrm-bvh="" rotation="0 180 0"></a-entity>
 
-    <a-entity id="camera-rig" position-controls="axismove:x" camera-control="homePosition:0 1.6 4">
+    <a-entity id="camera-rig" position-controls="axismove:x" camera-control="homePosition:0 0 3.5">
 
-      <a-camera look-controls="enabled:false" wasd-controls="enabled:false" position="0 0 0">
-      </a-camera>
+      <a-camera look-controls="enabled:false" wasd-controls="enabled:false" position="0 1.6 0"></a-camera>
 
       <a-entity laser-controls="hand: right" id="rightHand" raycaster="objects:.collidable"></a-entity>
       <a-entity laser-controls="hand: left" id="leftHand" raycaster="objects:.collidable"></a-entity>
 
       <!-- Avatar control panel -->
-      <a-xywindow position="-7 1 -9" title="Models" width="3" height="4" window-locator xycontainer="direction:column">
+      <a-xywindow position="-7 3 -9" title="Models" width="3" height="4" window-locator xycontainer="direction:column">
         <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
           <a-xylabel value="Blink" width="2"></a-xylabel>
           <a-xytoggle id="blink-toggle" value="true"></a-xytoggle>
         </a-xycontainer>
         <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
           <a-xylabel value="LookCam" width="2"></a-xylabel>
-          <a-xytoggle id="lookat-toggle" value="false"></a-xytoggle>
+          <a-xytoggle id="lookat-toggle" value="true"></a-xytoggle>
         </a-xycontainer>
         <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
           <a-xylabel value="Skeleton" width="2"></a-xylabel>
@@ -50,23 +51,25 @@
           <a-xybutton id="stop-animation-button" label="stop" width="1"></a-xybutton>
         </a-xycontainer>
         <a-xyscroll width=3 height=4 scrollbar=false>
-          <a-entity id="model-list" xylist="" xyrect=""></a-entity>
+          <a-entity id="model-list" xylist="itemHeight:0.5" xyrect=""></a-entity>
         </a-xyscroll>
       </a-xywindow>
 
       <!-- Bone/Shape panel -->
-      <a-xywindow position="7 1 -9" title="BlendShape" width="3" height="4" pose-editor-window window-locator
+      <a-xywindow position="7 3 -9" title="BlendShape" width="3" height="4" pose-editor-window window-locator
         xycontainer="direction:column">
-        <a-xybutton id="reset-all-morph" label="ResetAll"></a-xybutton>
+        <a-xybutton id="reset-all-morph" label="ResetAll" height=0.5></a-xybutton>
         <a-xyscroll width=3 height=4 scrollbar=false>
-          <a-entity id="item-list" xylist="" xyrect="width:3"></a-entity>
+          <a-entity id="item-list" xylist="itemHeight:0.5" xyrect="width:3"></a-entity>
         </a-xyscroll>
       </a-xywindow>
 
     </a-entity>
-
-
   </a-scene>
+
+  <div style="position:absolute;top:10pt;right:10pt;width:50pt;background-color:white;border-radius:4pt;">
+    <a href="https://github.com/binzume/aframe-vrm">GitHub</a>
+  </div>
 </body>
 
 </html>
