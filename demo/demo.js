@@ -87,7 +87,7 @@ AFRAME.registerComponent('pose-editor-window', {
                 sliderEl.setAttribute('width', 1.5);
                 sliderEl.setAttribute('position', { x: 0.8, y: 0, z: 0.05 });
                 sliderEl.addEventListener('change', (ev) => {
-                    self.vrm.setBlendShapeWeight(el.components.xylabel.data.value, ev.detail.value * 0.01);
+                    self.vrm.setBlendShapeWeight(el.getAttribute('xylabel').value, ev.detail.value * 0.01);
                 });
                 el.appendChild(sliderEl);
                 return el;
@@ -123,6 +123,7 @@ window.addEventListener('DOMContentLoaded', (ev) => {
         'assets/bvhfiles/la_bvh_sample02.bvh',
         'assets/bvhfiles/la_bvh_sample03.bvh'
     ];
+    let vrmEl = document.getElementById('avatar');
     let listEl = document.getElementById('model-list');
     let list = listEl.components.xylist;
     list.setAdapter({
@@ -140,56 +141,64 @@ window.addEventListener('DOMContentLoaded', (ev) => {
     });
     list.setContents(models);
     listEl.addEventListener('clickitem', (ev) => {
-        document.querySelector('[vrm]').setAttribute('vrm', { 'src': models[ev.detail.index].src });
+        if (!vrmEl.hasAttribute('vrm-poser')) {
+            vrmEl.setAttribute('vrm-bvh', { src: '' });
+        }
+        vrmEl.setAttribute('vrm', { src: models[ev.detail.index].src });
     });
 
     let files = motions.map(path => { let m = path.match(/([^\/]+)\.\w+$/); return m ? m[1] : path }).join(',');
     document.getElementById('animation-select').setAttribute('values', files);
     document.getElementById('animation-select').addEventListener('change', (ev) => {
-        document.querySelector('[vrm]').setAttribute('vrm-bvh', { 'src': motions[ev.detail.index] });
+        vrmEl.setAttribute('vrm-bvh', { 'src': motions[ev.detail.index] });
     });
 
     document.getElementById('skeleton-toggle').addEventListener('change', (ev) => {
         if (ev.detail.value) {
-            for (var el of document.querySelectorAll('[vrm]')) {
-                el.setAttribute('vrm-skeleton', {});
-            }
+            vrmEl.setAttribute('vrm-skeleton', {});
         } else {
-            for (var el of document.querySelectorAll('[vrm]')) {
-                el.removeAttribute('vrm-skeleton');
-            }
+            vrmEl.removeAttribute('vrm-skeleton');
         }
     });
 
     document.getElementById('blink-toggle').addEventListener('change', (ev) => {
-        for (var el of document.querySelectorAll('[vrm]')) {
-            el.setAttribute('vrm', 'blink', ev.detail.value);
-        }
+        vrmEl.setAttribute('vrm', 'blink', ev.detail.value);
     });
 
     document.getElementById('lookat-toggle').addEventListener('change', (ev) => {
-        for (var el of document.querySelectorAll('[vrm]')) {
-            el.setAttribute('vrm', 'lookAt', ev.detail.value ? 'a-camera' : null);
-        }
+        vrmEl.setAttribute('vrm', 'lookAt', ev.detail.value ? 'a-camera' : null);
     });
 
     document.getElementById('bone-toggle').addEventListener('change', (ev) => {
+        let containerEl = document.querySelector('#bone-buttons');
         if (ev.detail.value) {
-            for (var el of document.querySelectorAll('[vrm]')) {
-                el.removeAttribute('vrm-bvh');
-                el.setAttribute('vrm-poser', {});
-            }
+            vrmEl.removeAttribute('vrm-bvh');
+            vrmEl.setAttribute('vrm-poser', {});
+            containerEl.setAttribute('visible', true);
         } else {
-            for (var el of document.querySelectorAll('[vrm]')) {
-                el.removeAttribute('vrm-poser');
+            vrmEl.removeAttribute('vrm-poser');
+            containerEl.setAttribute('visible', false);
+        }
+    });
+
+    document.getElementById('bone-save-button').addEventListener('click', (ev) => {
+        if (vrmEl.hasAttribute('vrm-poser')) {
+            let poseJson = JSON.stringify(vrmEl.components['vrm-poser'].getPoseData(true));
+            localStorage.setItem('vrm-pose0', poseJson);
+        }
+    });
+
+    document.getElementById('bone-load-button').addEventListener('click', (ev) => {
+        if (vrmEl.hasAttribute('vrm-poser')) {
+            let poseJson = localStorage.getItem('vrm-pose0');
+            if (poseJson) {
+                vrmEl.components['vrm-poser'].setPoseData(JSON.parse(poseJson));
             }
         }
     });
 
     document.getElementById('stop-animation-button').addEventListener('click', (ev) => {
-        for (var el of document.querySelectorAll('[vrm]')) {
-            el.removeAttribute('vrm-bvh');
-        }
+        vrmEl.removeAttribute('vrm-bvh');
     });
 
     window.addEventListener('dragover', (ev) => {
@@ -201,11 +210,13 @@ window.addEventListener('DOMContentLoaded', (ev) => {
             let namelc = file.name.toLowerCase();
             if (namelc.endsWith('.vrm') || namelc.endsWith('.glb')) {
                 let url = URL.createObjectURL(file);
-                document.querySelector('[vrm]').setAttribute('vrm', { 'src': url });
+                vrmEl.removeAttribute('vrm-poser');
+                vrmEl.setAttribute('vrm-bvh', { src: '' });
+                vrmEl.setAttribute('vrm', { 'src': url });
                 models.push({ name: file.name, src: url });
                 list.setContents(models);
             } else if (namelc.endsWith('.bvh')) {
-                document.querySelector('[vrm]').setAttribute('vrm-bvh', { 'src': URL.createObjectURL(file) });
+                vrmEl.setAttribute('vrm-bvh', { 'src': URL.createObjectURL(file) });
             }
         }
     });

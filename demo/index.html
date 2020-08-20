@@ -19,7 +19,7 @@
     <a-plane id='ground' wireframe='true' width='10' height='10' segments-height='10' segments-width='10' rotation='90 0 0'></a-plane>
 
     <!-- VRM avatar -->
-    <a-entity vrm="src:assets/AliciaSolid/AliciaSolid.vrm;lookAt:a-camera" vrm-bvh="" rotation="0 180 0"></a-entity>
+    <a-entity id="avatar" vrm="src:assets/AliciaSolid/AliciaSolid.vrm;lookAt:a-camera" vrm-bvh="" rotation="0 180 0"></a-entity>
 
     <a-entity id="camera-rig" position-controls="axismove:x" camera-control="homePosition:0 0 3.5">
 
@@ -43,8 +43,12 @@
           <a-xytoggle id="skeleton-toggle" value="false"></a-xytoggle>
         </a-xycontainer>
         <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
-          <a-xylabel value="BoneTest" width="2"></a-xylabel>
+          <a-xylabel value="Edit Pose" width="2"></a-xylabel>
           <a-xytoggle id="bone-toggle" value="false"></a-xytoggle>
+        </a-xycontainer>
+        <a-xycontainer id="bone-buttons" visible="false" height="0.6" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xybutton id="bone-save-button" label="Save Pose" height=0.5></a-xybutton>
+          <a-xybutton id="bone-load-button" label="Load Pose" height=0.5></a-xybutton>
         </a-xycontainer>
         <a-xycontainer height="0.6" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
           <a-xyselect id="animation-select" label="Motion" width="0.5" height="0.4"></a-xyselect>
@@ -58,7 +62,10 @@
       <!-- Bone/Shape panel -->
       <a-xywindow position="7 3 -9" title="BlendShape" width="3" height="4" pose-editor-window window-locator
         xycontainer="direction:column">
-        <a-xybutton id="reset-all-morph" label="ResetAll" height=0.5></a-xybutton>
+        <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xylabel value="BlendShape" width="2"></a-xylabel>
+          <a-xybutton id="reset-all-morph" label="ResetAll" height=0.5></a-xybutton>
+        </a-xycontainer>
         <a-xyscroll width=3 height=4 scrollbar=false>
           <a-entity id="item-list" xylist="itemHeight:0.5" xyrect="width:3"></a-entity>
         </a-xyscroll>
@@ -67,7 +74,7 @@
     </a-entity>
   </a-scene>
 
-  <div style="position:absolute;top:10pt;right:10pt;width:50pt;background-color:white;border-radius:4pt;">
+  <div style="position:absolute;top:10pt;right:10pt;width:60pt;background-color:white;border-radius:4pt;text-align:center;">
     <a href="https://github.com/binzume/aframe-vrm">GitHub</a>
   </div>
 </body>
