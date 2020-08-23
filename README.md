@@ -41,21 +41,33 @@
 
 Attributes:
 
-| name | type | default | desc |
-| ---- | ---- | ------- | ---- |
-| src           | URL      | None   | VRM model URL |
-| blink         | boolean  | false  | Auto blink |
-| blinkInterval | number   | 5      | Blink interval |
-| lookAt        | selector | None   | look at target element |
+| name          | type     | default | desc |
+| ------------- | -------- | ------- | ---- |
+| src           | URL      | None    | VRM model URL |
+| blink         | boolean  | false   | Auto blink |
+| blinkInterval | number   | 5       | Blink interval |
+| lookAt        | selector | None    | look at target element |
+| firstPerson   | boolean  | false   | Hide head meshes |
 
 Events:
 
-| name | event.detail | desc |
-| ---- | ------------ | ---- |
+| name         | event.detail | desc |
+| ------------ | ------------ | ---- |
 | model-loaded | {format:'vrm', model: Object3D, avatar: VRMAvatar} | Loaded event |
-| model-error | {format:'vrm', src: URL} | Error event |
+| model-error  | {format:'vrm', src: URL, cause: object} | Error event |
 
 Compatible with gltf-model component: https://aframe.io/docs/1.0.0/components/gltf-model.html
+
+### vrm-poser
+
+Pose editor.
+
+Attributes:
+
+| name              | type    | default | desc        |
+| ----------------- | ------- | ------- | ----------- |
+| color             | color   | green   | box color   |
+| enableConstraints | boolean | true    | Enable bone constraints |
 
 ### vrm-bvh
 
@@ -63,10 +75,10 @@ Play bvh animation.
 
 Attributes:
 
-| name | type | default | desc |
-| ---- | ---- | ------- | ---- |
-| src           | URL      | None   | BVH file url |
-| convertBone   | boolean  | true   | Convert bone name |
+| name        | type     | default | desc |
+| ----------- | -------- | ------- | ---- |
+| src         | URL      | None    | BVH file url |
+| convertBone | boolean  | true    | Convert bone name |
 
 srcを空にするとアイドルアニメーションが再生されます(テスト用)．
 

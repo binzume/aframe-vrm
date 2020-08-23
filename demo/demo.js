@@ -17,6 +17,9 @@ AFRAME.registerComponent('camera-control', {
         let rotation = new THREE.Euler(0, 0, 0, 'YXZ');
         let distance = lookAt.clone().sub(this.el.getAttribute('position')).length();
         let updateCamera = () => {
+            if (this.el.sceneEl.is('vr-mode')) {
+                return;
+            }
             let cameraObj = this.el.object3D;
             let cameraRot = new THREE.Quaternion().setFromEuler(rotation);
             let cameraVec = new THREE.Vector3(0, 0, 1).applyQuaternion(cameraRot).multiplyScalar(distance);
@@ -64,16 +67,16 @@ AFRAME.registerComponent('camera-control', {
         } else {
             this.el.setAttribute('position', this.data.homePosition);
         }
+        this.el.setAttribute('rotation', { x: 0, y: 0, z: 0 });
     }
 });
 
 AFRAME.registerComponent('pose-editor-window', {
     schema: {
+        vrm: { type: 'selector', default: '[vrm]' },
     },
     init() {
-        this.vrmEl = document.querySelector('[vrm]');
-        this.vrmEl.addEventListener('model-loaded', (ev) => this.updateAvatar(ev.detail.avatar));
-        let listEl = this.el.querySelector('#item-list');
+        let listEl = this.el.querySelector('[name=item-list]');
         let list = this.list = listEl.components.xylist;
         let self = this;
         list.setAdapter({
@@ -97,17 +100,29 @@ AFRAME.registerComponent('pose-editor-window', {
                 el.querySelector('a-xyrange').value = self.vrm.getBlendShapeWeight(contents[position]) * 100;
             }
         });
-        this.el.querySelector('#reset-all-morph').addEventListener('click', (ev) => {
+        this.el.querySelector('[name=reset-all-morph]').addEventListener('click', (ev) => {
             self.vrm.resetBlendShape();
             this.list.setContents(this.blendShapeNames);
         });
+        this.onModelLoaded = (ev) => this.updateAvatar(ev.detail.avatar);
     },
-    updateAvatar(vrm) {
-        this.vrm = vrm;
-        this.blendShapeNames = Object.keys(vrm.blendShapes);
+    update() {
+        this.remove();
+        this.vrmEl = this.data.vrm;
+        this.vrmEl.addEventListener('model-loaded', this.onModelLoaded);
+        if (this.vrmEl.components.vrm.avatar) {
+            this.updateAvatar(this.vrmEl.components.vrm.avatar);
+        }
+    },
+    updateAvatar(avatar) {
+        this.vrm = avatar;
+        this.blendShapeNames = Object.keys(avatar.blendShapes);
         this.list.setContents(this.blendShapeNames);
     },
     remove() {
+        if (this.vrmEl) {
+            this.vrmEl.removeEventListener('model-loaded', this.onModelLoaded);
+        }
     }
 });
 
@@ -167,6 +182,10 @@ window.addEventListener('DOMContentLoaded', (ev) => {
 
     document.getElementById('lookat-toggle').addEventListener('change', (ev) => {
         vrmEl.setAttribute('vrm', 'lookAt', ev.detail.value ? 'a-camera' : null);
+    });
+
+    document.getElementById('first-person-toggle').addEventListener('change', (ev) => {
+        vrmEl.setAttribute('vrm', 'firstPerson', ev.detail.value ? 'a-camera' : null);
     });
 
     document.getElementById('bone-toggle').addEventListener('change', (ev) => {

@@ -23,7 +23,7 @@
 
     <a-entity id="camera-rig" position-controls="axismove:x" camera-control="homePosition:0 0 3.5">
 
-      <a-camera look-controls="enabled:false" wasd-controls="enabled:false" position="0 1.6 0"></a-camera>
+      <a-camera look-controls="enabled:false" position="0 1.6 0"></a-camera>
 
       <a-entity laser-controls="hand: right" id="rightHand" raycaster="objects:.collidable"></a-entity>
       <a-entity laser-controls="hand: left" id="leftHand" raycaster="objects:.collidable"></a-entity>
@@ -43,6 +43,10 @@
           <a-xytoggle id="skeleton-toggle" value="false"></a-xytoggle>
         </a-xycontainer>
         <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xylabel value="FirstPerson" width="2"></a-xylabel>
+          <a-xytoggle id="first-person-toggle" value="false"></a-xytoggle>
+        </a-xycontainer>
+        <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
           <a-xylabel value="Edit Pose" width="2"></a-xylabel>
           <a-xytoggle id="bone-toggle" value="false"></a-xytoggle>
         </a-xycontainer>
@@ -59,15 +63,14 @@
         </a-xyscroll>
       </a-xywindow>
 
-      <!-- Bone/Shape panel -->
+      <!-- Blend shape panel -->
       <a-xywindow position="7 3 -9" title="BlendShape" width="3" height="4" pose-editor-window window-locator
         xycontainer="direction:column">
         <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
-          <a-xylabel value="BlendShape" width="2"></a-xylabel>
-          <a-xybutton id="reset-all-morph" label="ResetAll" height=0.5></a-xybutton>
+          <a-xybutton name="reset-all-morph" label="ResetAll" height=0.5></a-xybutton>
         </a-xycontainer>
         <a-xyscroll width=3 height=4 scrollbar=false>
-          <a-entity id="item-list" xylist="itemHeight:0.5" xyrect="width:3"></a-entity>
+          <a-entity name="item-list" xylist="itemHeight:0.5" xyrect="width:3"></a-entity>
         </a-xyscroll>
       </a-xywindow>
 
