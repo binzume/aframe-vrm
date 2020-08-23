@@ -15,8 +15,10 @@ class VRMAvatar {
 		this._annotatedMeshes = [];
 		// TODO: configurable constraints
 		this.boneConstraints = {
-			'leftUpperLeg': { type: 'ball', limit: 160 * Math.PI / 180 },
-			'rightUpperLeg': { type: 'ball', limit: 160 * Math.PI / 180 },
+			'head': { type: 'ball', limit: 60 * Math.PI / 180, twistAxis: new THREE.Vector3(0, 1, 0), twistLimit: 60 * Math.PI / 180 },
+			'neck': { type: 'ball', limit: 30 * Math.PI / 180, twistAxis: new THREE.Vector3(0, 1, 0), twistLimit: 10 * Math.PI / 180 },
+			'leftUpperLeg': { type: 'ball', limit: 160 * Math.PI / 180, twistAxis: new THREE.Vector3(0, -1, 0), twistLimit: Math.PI / 2 },
+			'rightUpperLeg': { type: 'ball', limit: 160 * Math.PI / 180, twistAxis: new THREE.Vector3(0, -1, 0), twistLimit: Math.PI / 2 },
 			'leftLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 10 * Math.PI / 180 },
 			'rightLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 10 * Math.PI / 180 }
 		};
@@ -425,6 +427,7 @@ AFRAME.registerComponent('vrm-poser', {
 		this._tmpV0 = new THREE.Vector3();
 		this._tmpV1 = new THREE.Vector3();
 		this._tmpQ0 = new THREE.Quaternion();
+		this._tmpQ1 = new THREE.Quaternion();
 		this._tmpM0 = new THREE.Matrix4();
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
 			this._onAvatarUpdated(this.el.components.vrm.avatar);
@@ -495,24 +498,30 @@ AFRAME.registerComponent('vrm-poser', {
 			targetEl.addEventListener('mousedown', ev => {
 				this.el.emit('vrm-poser-select', { name: name, node: bone });
 			});
+			let parentBone = bone.parent;
+			while (!boneNameByUUID[parentBone.uuid] && parentBone.parent?.isBone) {
+				parentBone = parentBone.parent;
+			}
 			targetEl.addEventListener('xy-drag', ev => {
 				if (isRoot) {
 					// TODO
 					let d = targetObject.parent.worldToLocal(bone.getWorldPosition(_v0)).sub(targetObject.position)
 					avatar.model.position.sub(d);
 				}
-				bone.parent.updateMatrixWorld(false);
+				parentBone.updateMatrixWorld(false);
 				targetObject.updateMatrixWorld(false);
-				_m.getInverse(bone.parent.matrixWorld).multiply(targetObject.matrixWorld).decompose(_v1, _q, _v0);
+				_m.getInverse(parentBone.matrixWorld).multiply(targetObject.matrixWorld).decompose(_v1, _q, _v0);
 				bone.quaternion.copy(this._applyConstraintQ(name, _q));
 				_q.setFromUnitVectors(_v0.copy(bone.position).normalize(), _v1.normalize());
-				bone.parent.quaternion.multiply(_q);
-				this._applyConstraintQ(boneNameByUUID[bone.parent.uuid], bone.parent.quaternion)
+				if (parentBone.children.length == 1) {
+					parentBone.quaternion.multiply(_q);
+					this._applyConstraintQ(boneNameByUUID[parentBone.uuid], parentBone.quaternion)
+				}
 				this._updateHandlePosition(isRoot ? null : bone);
 			});
 			targetEl.addEventListener('xy-dragend', ev => {
 				this._updateHandlePosition();
-				console.log(bone.parent.name, name);
+				console.log(parentBone.name, name);
 			});
 			this.el.appendChild(targetEl);
 			this.binds.push([bone, targetObject]);
@@ -523,22 +532,33 @@ AFRAME.registerComponent('vrm-poser', {
 		if (!this.data.enableConstraints) {
 			return q;
 		}
+		let _q = this._tmpQ1, _v = this._tmpV0;
 		let constraint = this.avatar.boneConstraints[name];
+		console.log(name, constraint);
 		if (constraint && constraint.type == 'ball') {
 			let angle = 2 * Math.acos(q.w);
-			if (angle > constraint.limit) {
-				q.setFromAxisAngle(this._tmpV0.copy(q).normalize(), constraint.limit);
+			if (constraint.twistAxis) {
+				let tangle = angle * Math.acos(q.w) * _v.copy(q).normalize().dot(constraint.twistAxis); // TODO
+				tangle = this._normalizeAngle(tangle);
+				if (Math.abs(tangle) > constraint.twistLimit) {
+					let e = tangle < 0 ? (tangle + constraint.twistLimit) : (tangle - constraint.twistLimit);
+					q.multiply(_q.setFromAxisAngle(constraint.twistAxis, -e));
+					angle = 2 * Math.acos(q.w);
+				}
+			}
+			if (Math.abs(this._normalizeAngle(angle)) > constraint.limit) {
+				q.setFromAxisAngle(_v.copy(q).normalize(), constraint.limit);
 			}
 		} else if (constraint && constraint.type == 'hinge') {
 			let m = (constraint.min + constraint.max) / 2;
-			let angle = 2 * Math.acos(q.w) * this._tmpV0.copy(q).normalize().dot(constraint.axis); // TODO
-			angle = (angle - m) % (Math.PI * 2);
-			if (angle > Math.PI) angle -= Math.PI * 2;
-			if (angle < -Math.PI) angle += Math.PI * 2;
-			angle = THREE.MathUtils.clamp(angle, constraint.min - m, constraint.max - m);
+			let angle = 2 * Math.acos(q.w) * _v.copy(q).normalize().dot(constraint.axis); // TODO
+			angle = THREE.MathUtils.clamp(this._normalizeAngle(angle - m), constraint.min - m, constraint.max - m);
 			q.setFromAxisAngle(constraint.axis, angle + m);
 		}
 		return q;
+	},
+	_normalizeAngle(angle) {
+		return angle - Math.PI * 2 * Math.floor((angle + Math.PI) / (Math.PI * 2));
 	},
 	_removeHandles() {
 		this.binds.forEach(([b, t]) => {
