@@ -34,8 +34,8 @@
 - vrm: Load vrm model
 - vrm-bvh: Play BVH animation
 - vrm-poser: pose editor for VR
-- vrm-ik-poser: IK test [WIP]
 - vrm-skeleton: display skeleton
+- vrm-mimic: TODO
 
 ### vrm
 
@@ -43,9 +43,9 @@ Attributes:
 
 | name          | type     | default | desc |
 | ------------- | -------- | ------- | ---- |
-| src           | URL      | None    | VRM model URL |
+| src           | string   | None    | VRM model URL |
 | blink         | boolean  | false   | Auto blink |
-| blinkInterval | number   | 5       | Blink interval |
+| blinkInterval | number   | 5       | Auto blink interval |
 | lookAt        | selector | None    | look at target element |
 | firstPerson   | boolean  | false   | Hide head meshes |
 
@@ -88,10 +88,10 @@ See: [vrm.js](vrm.js)
 
 Property:
 
-- VRMAvatar.isVRM : true if gltf is valid VRM.
 - VRMAvatar.model : THREE.Object3D
 - VRMAvatar.mixer : AnimationMixer
 - VRMAvatar.bones : VRM bones
+- VRMAvatar.blendShapes : blend shapes
 
 Methods:
 
@@ -101,6 +101,7 @@ Methods:
 - VRMAvatar.resetBlendShape() : Reset all blend shapes.
 - VRMAvatar.startBlink(intervalSec)
 - VRMAvatar.stopBlink()
+- VRMAvatar.setFirstPerson(firstPerson)
 - VRMAvatar.tick(timeDelta)
 - VRMAvatar.destroy()
 

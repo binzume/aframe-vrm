@@ -17,10 +17,10 @@ class VRMAvatar {
 		this.boneConstraints = {
 			'head': { type: 'ball', limit: 60 * Math.PI / 180, twistAxis: new THREE.Vector3(0, 1, 0), twistLimit: 60 * Math.PI / 180 },
 			'neck': { type: 'ball', limit: 30 * Math.PI / 180, twistAxis: new THREE.Vector3(0, 1, 0), twistLimit: 10 * Math.PI / 180 },
-			'leftUpperLeg': { type: 'ball', limit: 160 * Math.PI / 180, twistAxis: new THREE.Vector3(0, -1, 0), twistLimit: Math.PI / 2 },
-			'rightUpperLeg': { type: 'ball', limit: 160 * Math.PI / 180, twistAxis: new THREE.Vector3(0, -1, 0), twistLimit: Math.PI / 2 },
-			'leftLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 10 * Math.PI / 180 },
-			'rightLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 10 * Math.PI / 180 }
+			'leftUpperLeg': { type: 'ball', limit: 170 * Math.PI / 180, twistAxis: new THREE.Vector3(0, -1, 0), twistLimit: Math.PI / 2 },
+			'rightUpperLeg': { type: 'ball', limit: 170 * Math.PI / 180, twistAxis: new THREE.Vector3(0, -1, 0), twistLimit: Math.PI / 2 },
+			'leftLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 0 * Math.PI / 180 },
+			'rightLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 0 * Math.PI / 180 }
 		};
 	}
 	async init(gltf) {
@@ -69,14 +69,16 @@ class VRMAvatar {
 			}
 			let targetDirection = b.worldToLocal(this.lookAtTarget.getWorldPosition(this._tmpV0)).normalize();
 			let rot = this._tmpQ0.setFromUnitVectors(this._zV, targetDirection);
-			const boneLimit = Math.PI / 4;
+			let boneLimit = this.boneConstraints.head.limit;
+			let speedFactor = 0.08;
 			let angle = 2 * Math.acos(rot.w);
-			if (angle > boneLimit * 2) {
+			if (angle > boneLimit * 1.5) {
 				rot = this._identQ;
+				speedFactor = 0.04;
 			} else if (angle > boneLimit) {
 				rot.setFromAxisAngle(this._tmpV0.copy(rot).normalize(), boneLimit);
 			}
-			b.quaternion.slerp(rot, 0.08);
+			b.quaternion.slerp(rot, speedFactor);
 		}
 	}
 	setBlendShapeWeight(name, value) {
@@ -340,42 +342,45 @@ AFRAME.registerComponent('vrm-bvh', {
 				return;
 			}
 			if (this.data.convertBone) {
-				result.clip.tracks.forEach(t => {
-					// '.bones[Chest].quaternion'/
-					t.name = t.name.replace(/bones\[(\w+)\]/, (m, name) => {
-						name = name.replace('Spin1', 'Spin');
-						name = name.replace('Chest1', 'Chest');
-						name = name.replace('Chest2', 'UpperChest');
-						name = name.replace('UpLeg', 'UpperLeg');
-						name = name.replace('LeftLeg', 'LeftLowerLeg');
-						name = name.replace('RightLeg', 'RightLowerLeg');
-						name = name.replace('ForeArm', 'UpperArm');
-						name = name.replace('LeftArm', 'LeftLowerArm');
-						name = name.replace('RightArm', 'RightLowerArm');
-						name = name.replace('Collar', 'Shoulder');
-						name = name.replace('Elbow', 'LowerArm');
-						name = name.replace('Wrist', 'Hand');
-						name = name.replace('LeftHip', 'LeftUpperLeg');
-						name = name.replace('RightHip', 'RightUpperLeg');
-						name = name.replace('Knee', 'LowerLeg');
-						name = name.replace('Ankle', 'Foot');
-						let bone = this.avatar.bones[name.charAt(0).toLowerCase() + name.slice(1)];
-						return 'bones[' + (bone != null ? bone.name : 'NOT_FOUND') + ']';
-					});
-					if (t.name.match(/quaternion/)) {
-						t.values = t.values.map((v, i) => i % 2 === 0 ? -v : v);
-					}
-					t.name = t.name.replace('ToeBase', 'Foot');
-					if (t.name.match(/position/)) {
-						t.values = t.values.map((v, i) => (i % 3 === 1 ? v : -v) * 0.09); // TODO
-					}
-				});
-				result.clip.tracks = result.clip.tracks.filter(t => !t.name.match(/NOT_FOUND/));
+				this.convertClip(result.clip);
 			}
 			result.clip.tracks = result.clip.tracks.filter(t => !t.name.match(/position/) || t.name.match(this.avatar.bones.hips.name));
 			this.clip = result.clip;
 			this.animation = this.avatar.mixer.clipAction(result.clip).setLoop(loop).setEffectiveWeight(1.0).play();
 		});
+	},
+	convertClip(clip) {
+		clip.tracks.forEach(t => {
+			// '.bones[Chest].quaternion'
+			t.name = t.name.replace(/bones\[(\w+)\]/, (m, name) => {
+				name = name.replace('Spin1', 'Spin');
+				name = name.replace('Chest1', 'Chest');
+				name = name.replace('Chest2', 'UpperChest');
+				name = name.replace('UpLeg', 'UpperLeg');
+				name = name.replace('LeftLeg', 'LeftLowerLeg');
+				name = name.replace('RightLeg', 'RightLowerLeg');
+				name = name.replace('ForeArm', 'UpperArm');
+				name = name.replace('LeftArm', 'LeftLowerArm');
+				name = name.replace('RightArm', 'RightLowerArm');
+				name = name.replace('Collar', 'Shoulder');
+				name = name.replace('Elbow', 'LowerArm');
+				name = name.replace('Wrist', 'Hand');
+				name = name.replace('LeftHip', 'LeftUpperLeg');
+				name = name.replace('RightHip', 'RightUpperLeg');
+				name = name.replace('Knee', 'LowerLeg');
+				name = name.replace('Ankle', 'Foot');
+				let bone = this.avatar.bones[name.charAt(0).toLowerCase() + name.slice(1)];
+				return 'bones[' + (bone != null ? bone.name : 'NOT_FOUND') + ']';
+			});
+			t.name = t.name.replace('ToeBase', 'Foot');
+			if (t.name.match(/quaternion/)) {
+				t.values = t.values.map((v, i) => i % 2 === 0 ? -v : v);
+			}
+			if (t.name.match(/position/)) {
+				t.values = t.values.map((v, i) => (i % 3 === 1 ? v : -v) * 0.09); // TODO
+			}
+		});
+		clip.tracks = clip.tracks.filter(t => !t.name.match(/NOT_FOUND/));
 	},
 	stopAnimation() {
 		if (this.animation) {
@@ -534,7 +539,6 @@ AFRAME.registerComponent('vrm-poser', {
 		}
 		let _q = this._tmpQ1, _v = this._tmpV0;
 		let constraint = this.avatar.boneConstraints[name];
-		console.log(name, constraint);
 		if (constraint && constraint.type == 'ball') {
 			let angle = 2 * Math.acos(q.w);
 			if (constraint.twistAxis) {
@@ -580,16 +584,91 @@ AFRAME.registerComponent('vrm-poser', {
 	}
 });
 
+// Simple IK
+class IKNode {
+	constructor(position, constraint, userData) {
+		this.position = position;
+		this.quaternion = new THREE.Quaternion();
+		this.worldMatrix = new THREE.Matrix4();
+		this.worldPosition = new THREE.Vector3();
+		this.constraint = constraint;
+		this.userData = userData;
+	}
+}
+class IKSolver {
+	constructor() {
+		this.iterationLimit = 50;
+		this.thresholdSq = 0.0001;
+		this._iv = new THREE.Vector3(1, 1, 1);
+		this._tmpV0 = new THREE.Vector3();
+		this._tmpV1 = new THREE.Vector3();
+		this._tmpV2 = new THREE.Vector3();
+		this._tmpQ0 = new THREE.Quaternion();
+		this._tmpQ1 = new THREE.Quaternion();
+	}
+	_updateChain(bones, parentMat) {
+		for (let bone of bones) {
+			bone.worldMatrix.compose(bone.position, bone.quaternion, this._iv).premultiply(parentMat);
+			bone.worldPosition.setFromMatrixPosition(bone.worldMatrix);
+			parentMat = bone.worldMatrix;
+		}
+	}
+	solve(bones, target, boneSpaceMat) {
+		this._updateChain(bones, boneSpaceMat);
+		let endPosition = bones[bones.length - 1].worldPosition;
+		let startDistance = endPosition.distanceToSquared(target);
+		let targetDir = this._tmpV2;
+		let endDir = this._tmpV1;
+		let rotation = this._tmpQ1;
+		for (let i = 0; i < this.iterationLimit; i++) {
+			if (endPosition.distanceToSquared(target) < this.thresholdSq) {
+				break;
+			}
+			let currentTarget = this._tmpV0.copy(target);
+			for (let j = bones.length - 2; j >= 0; j--) {
+				let bone = bones[j];
+				let endPos = bones[j + 1].position;
+				bone.worldMatrix.decompose(this._tmpV1, this._tmpQ0, this._tmpV2);
+				targetDir.copy(currentTarget).sub(this._tmpV1).applyQuaternion(rotation.copy(this._tmpQ0).inverse()).normalize();
+				endDir.copy(endPos).normalize();
+				rotation.setFromUnitVectors(endDir, targetDir);
+				bone.quaternion.multiply(rotation);
+				let v = endDir.copy(endPos).applyQuaternion(this._tmpQ0.multiply(rotation));
+				if (bone.constraint) {
+					rotation.copy(bone.quaternion).inverse();
+					if (bone.constraint.apply(bone)) {
+						// TODO
+						rotation.premultiply(bone.quaternion);
+						v.copy(endPos).applyQuaternion(this._tmpQ0.multiply(rotation));
+					}
+				}
+				currentTarget.sub(v);
+			}
+			this._updateChain(bones, boneSpaceMat);
+		}
+		return endPosition.distanceToSquared(target) < startDistance;
+	}
+}
 
-AFRAME.registerComponent('vrm-ik-poser', {
+AFRAME.registerComponent('vrm-mimic', {
 	schema: {
 		leftHandTarget: { type: 'selector', default: '' },
+		leftHandOffsetPosition: { type: 'vec3' },
+		leftHandOffsetRotation: { type: 'vec3', default: { x: 0, y: -Math.PI / 2, z: 0 } },
 		rightHandTarget: { type: 'selector', default: '' },
+		rightHandOffsetPosition: { type: 'vec3' },
+		rightHandOffsetRotation: { type: 'vec3', default: { x: 0, y: Math.PI / 2, z: 0 } },
 		leftLegTarget: { type: 'selector', default: '' },
 		rightLegTarget: { type: 'selector', default: '' },
-		mode: { default: 'fik' },
+		headTarget: { type: 'selector', default: '' },
+		avatarOffset: { type: 'vec3', default: { x: 0, y: 0, z: 0 } },
 	},
 	init() {
+		this._tmpV0 = new THREE.Vector3();
+		this._tmpV1 = new THREE.Vector3();
+		this._tmpQ0 = new THREE.Quaternion();
+		this._tmpQ1 = new THREE.Quaternion();
+		this._tmpM0 = new THREE.Matrix4();
 		this.targetEls = [];
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
 			this._onAvatarUpdated(this.el.components.vrm.avatar);
@@ -597,25 +676,35 @@ AFRAME.registerComponent('vrm-ik-poser', {
 		this.onVrmLoaded = (ev) => this._onAvatarUpdated(ev.detail.avatar);
 		this.el.addEventListener('model-loaded', this.onVrmLoaded);
 	},
+	update() {
+		if (this.data.headTarget?.tagName == 'A-CAMERA') {
+			this.headTarget = this.el.sceneEl.camera;
+		} else {
+			this.headTarget = this.data.headTarget?.object3D;
+		}
+
+		this.rightHandOffset = new THREE.Matrix4().compose(
+			this.data.rightHandOffsetPosition,
+			new THREE.Quaternion().setFromEuler(new THREE.Euler().setFromVector3(this.data.rightHandOffsetRotation)),
+			new THREE.Vector3(1, 1, 1));
+		this.leftHandOffset = new THREE.Matrix4().compose(
+			this.data.leftHandOffsetPosition,
+			new THREE.Quaternion().setFromEuler(new THREE.Euler().setFromVector3(this.data.leftHandOffsetRotation)),
+			new THREE.Vector3(1, 1, 1));
+	},
 	_onAvatarUpdated(avatar) {
+		this.avatar = avatar;
 		for (let el of this.targetEls) {
 			this.el.removeChild(el);
 		}
 		this.targetEls = [];
-		if (this.data.mode === 'fik') {
-			this.startAvatarIK(avatar);
-		} else {
-			this.startAvatarIK_threeIK(avatar);
-		}
+		this.update();
+		this.startAvatarIK_simpleIK(avatar);
 	},
-	async startAvatarIK(avatar) {
-		let FIK = await import('./3rdparty/fik.module.js');
-		let ik = new FIK.Structure3D(this.el.object3D);
-
+	startAvatarIK_simpleIK(avatar) {
+		let solver = new IKSolver();
 		this.qbinds = [];
-		this.binds = [];
-		this.targetBinds = [];
-		let setupIk = (boneNames, targetEl) => {
+		let setupIkChain = (boneNames, targetEl, offset) => {
 			if (targetEl == null) {
 				targetEl = document.createElement('a-box');
 				targetEl.classList.add('collidable');
@@ -625,90 +714,100 @@ AFRAME.registerComponent('vrm-ik-poser', {
 				this.el.appendChild(targetEl);
 				this.targetEls.push(targetEl);
 			}
-			const chain = new FIK.Chain3D(0xFFFF00);
+			let pos = (b, p) => p.worldToLocal(b.getWorldPosition(new THREE.Vector3()));
 			boneNames = boneNames.filter(name => avatar.bones[name]);
 			let boneList = boneNames.map(name => avatar.bones[name]);
-			let pp = b => this.el.object3D.worldToLocal(b.getWorldPosition(new THREE.Vector3()));
-			boneList.forEach((bone, i) => {
-				let b;
-				if (i + 1 < boneList.length) {
-					b = new FIK.Bone3D(pp(bone), pp(boneList[i + 1]))
-				} else {
-					let d = pp(bone).sub(pp(bone.parent)).normalize();
-					b = new FIK.Bone3D(pp(bone), undefined, new FIK.V3(d.x, d.y, d.z), 0.01);
-				}
-				chain.addBone(b);
-				this.binds.push([bone, chain, chain.bones.length - 1, b.end.minus(b.start).normalize()]);
+			let bones = boneList.map((b, i) => {
+				let position = i == 0 ? b.position : pos(b, boneList[i - 1]);
+				let constraintConf = avatar.boneConstraints[boneNames[i]];
+				let constraint = constraintConf ? {
+					apply: ikbone => {
+						return this._applyConstraintQ(constraintConf, ikbone.quaternion);
+					}
+				} : null;
+				return new IKNode(position, constraint, b);
 			});
-			let targetPos = new THREE.Vector3();
-			if (boneList.length) {
-				targetPos = pp(boneList[boneList.length - 1]);
-			}
-			ik.add(chain, targetPos, false);
-			this.targetBinds.push([targetPos, targetEl.object3D]);
-			targetEl.setAttribute('position', targetPos);
-			console.log(chain);
-			return chain;
+			this.qbinds.push([boneList[boneList.length - 1], targetEl.object3D, offset]);
+			return { root: boneList[0], ikbones: bones, bones: boneList, target: targetEl.object3D };
 		};
-		setupIk(['leftUpperArm', 'leftLowerArm', 'leftHand'], this.data.leftHandTarget);
-		setupIk(['rightUpperArm', 'rightLowerArm', 'rightHand'], this.data.rightHandTarget);
-		setupIk(['leftUpperLeg', 'leftLowerLeg', 'leftFoot'], this.data.leftLegTarget);
-		setupIk(['rightUpperLeg', 'rightLowerLeg', 'rightFoot'], this.data.rightLegTarget);
 
-		this.ikSolver = ik;
+		this.chains = [
+			setupIkChain(['leftUpperArm', 'leftLowerArm', 'leftHand'], this.data.leftHandTarget, this.leftHandOffset),
+			setupIkChain(['rightUpperArm', 'rightLowerArm', 'rightHand'], this.data.rightHandTarget, this.rightHandOffset),
+			setupIkChain(['leftUpperLeg', 'leftLowerLeg', 'leftFoot'], this.data.leftLegTarget),
+			setupIkChain(['rightUpperLeg', 'rightLowerLeg', 'rightFoot'], this.data.rightLegTarget),
+		];
+
+		this.simpleIK = solver;
 	},
-	async startAvatarIK_threeIK(avatar) {
-		await import('./3rdparty/three-ik.module.js');
-		console.log(THREE.IK);
-		const constraints = [new THREE.IKBallConstraint(150)];
-
-		const ik = new THREE.IK();
-		this.qbinds = [];
-		let setupIk = (boneNames, targetEl) => {
-			const chain = new THREE.IKChain();
-			let boneList = boneNames.flatMap(name => avatar.bones[name] ? [avatar.bones[name]] : []);
-			boneList.forEach((bone, i) => {
-				let target = i === boneList.length - 1 ? targetEl.object3D : null;
-				if (target) this.qbinds.push([bone, target]);
-				chain.add(new THREE.IKJoint(bone, { constraints }), { target: target });
-			});
-			ik.add(chain);
-		};
-		setupIk(['leftUpperArm', 'leftLowerArm', 'leftHand'], this.data.leftHandTarget);
-		setupIk(['rightUpperArm', 'rightLowerArm', 'rightHand'], this.data.rightHandTarget);
-		setupIk(['leftUpperLeg', 'leftLowerLeg', 'leftFoot'], this.data.leftLegTarget);
-		setupIk(['rightUpperLeg', 'rightLowerLeg', 'rightFoot'], this.data.rightLegTarget);
-
-		let scene = this.el.sceneEl.object3D;
-		scene.add(ik.getRootBone());
-		const helper = new THREE.IKHelper(ik);
-		scene.add(helper);
-
-		this.ik = ik;
+	_applyConstraintQ(constraint, q) {
+		let _q = this._tmpQ1, _v = this._tmpV0, fixed = false;;
+		if (constraint && constraint.type == 'ball') {
+			let angle = 2 * Math.acos(q.w);
+			if (constraint.twistAxis) {
+				let tangle = angle * Math.acos(q.w) * _v.copy(q).normalize().dot(constraint.twistAxis); // TODO
+				tangle = this._normalizeAngle(tangle);
+				if (Math.abs(tangle) > constraint.twistLimit) {
+					let e = tangle < 0 ? (tangle + constraint.twistLimit) : (tangle - constraint.twistLimit);
+					q.multiply(_q.setFromAxisAngle(constraint.twistAxis, -e));
+					angle = 2 * Math.acos(q.w);
+					fixed = true;
+				}
+			}
+			if (Math.abs(this._normalizeAngle(angle)) > constraint.limit) {
+				q.setFromAxisAngle(_v.copy(q).normalize(), constraint.limit);
+				fixed = true;
+			}
+		} else if (constraint && constraint.type == 'hinge') {
+			let m = (constraint.min + constraint.max) / 2;
+			let dot = _v.copy(q).normalize().dot(constraint.axis);
+			let angle = 2 * Math.acos(q.w) * dot; // TODO
+			angle = THREE.MathUtils.clamp(this._normalizeAngle(angle - m), constraint.min - m, constraint.max - m);
+			q.setFromAxisAngle(constraint.axis, angle + m);
+			fixed = true;
+		}
+		return fixed;
+	},
+	_normalizeAngle(angle) {
+		return angle - Math.PI * 2 * Math.floor((angle + Math.PI) / (Math.PI * 2));
 	},
 	tick(time, timeDelta) {
-		if (this.ikSolver) {
-			this.targetBinds.forEach(([t, o]) => {
-				t.copy(this.el.object3D.worldToLocal(o.getWorldPosition(new THREE.Vector3())));
-			});
-			this.ikSolver.update();
-			let wq = this.el.object3D.getWorldQuaternion(new THREE.Quaternion()).inverse();
-			let tq = new THREE.Quaternion();
-			this.binds.forEach(([b, c, bid, init]) => {
-				let t = c.bones[bid];
-				let d = t.end.minus(t.start).normalize();
-				b.quaternion.setFromUnitVectors(init, d).premultiply(b.parent.getWorldQuaternion(tq).premultiply(wq).inverse());
-			});
-			this.qbinds.forEach(([b, t]) => {
-				let r = new THREE.Quaternion().setFromRotationMatrix(b.matrixWorld).inverse();
-				b.quaternion.copy(t.getWorldQuaternion(tq).premultiply(wq).multiply(r));
-			});
+		if (!this.avatar) {
+			return;
 		}
-		if (this.ik) {
-			this.ik.solve();
-			this.qbinds.forEach(([b, t]) => {
-				let r = new THREE.Quaternion().setFromRotationMatrix(b.matrixWorld).inverse();
-				b.quaternion.copy(t.getWorldQuaternion(tq).multiply(r));
+		if (this.headTarget) {
+			let position = this.headTarget.getWorldPosition(this._tmpV0);
+			let headRot = this.headTarget.getWorldQuaternion(this._tmpQ0);
+			position.y = 0;
+			this.avatar.model.position.copy(position.add(this.data.avatarOffset));
+			let head = this.avatar.firstPersonBone;
+			if (head) {
+				let r = this._tmpQ1.setFromRotationMatrix(head.parent.matrixWorld).inverse();
+				head.quaternion.copy(headRot.premultiply(r));
+			}
+		}
+		if (this.simpleIK) {
+			let pm = new THREE.Matrix4().getInverse(this.el.object3D.matrixWorld);
+			for (let chain of this.chains) {
+				// TODO: add chain.root.position
+				let baseMat = chain.root.parent.matrixWorld.clone().premultiply(pm);
+				if (this.simpleIK.solve(chain.ikbones, chain.target.position, baseMat) || true) {
+					chain.ikbones.forEach((ikbone, i) => {
+						if (i == chain.ikbones.length - 1) return;
+						let a = ikbone.userData.quaternion.angleTo(ikbone.quaternion);
+						if (a > 0.2) {
+							ikbone.userData.quaternion.slerp(ikbone.quaternion, 0.2 / a);
+						} else {
+							ikbone.userData.quaternion.copy(ikbone.quaternion);
+						}
+					});
+
+				}
+			}
+			this.qbinds.forEach(([bone, t, offset]) => {
+				let m = offset ? t.matrixWorld.clone().multiply(offset) : t.matrixWorld;
+				let r = this._tmpQ0.setFromRotationMatrix(bone.parent.matrixWorld).inverse();
+				bone.quaternion.copy(this._tmpQ1.setFromRotationMatrix(m).premultiply(r));
 			});
 		}
 	},
