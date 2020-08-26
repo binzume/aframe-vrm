@@ -2,7 +2,6 @@
 
 class VRMAvatar {
 	constructor() {
-		this.isVRM = false;
 		this.model = null;
 		this.mixer = null;
 		this.bones = {}; // : { boneName : Object3D }
@@ -28,7 +27,6 @@ class VRMAvatar {
 		this.model = gltf.scene;
 		this.mixer = new THREE.AnimationMixer(this.model);
 		if (!vrmExt) {
-			this.model.skeleton = new THREE.Skeleton([]);
 			return this;
 		}
 		let bones = this.bones;
@@ -57,7 +55,6 @@ class VRMAvatar {
 				vrmExt.firstPerson.meshAnnotations.map(ma => ({ flag: ma.firstPersonFlag, mesh: meshes[ma.mesh] }));
 		}
 		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
-		this.isVRM = true;
 		return this;
 	}
 	tick(timeDelta) {
@@ -209,7 +206,12 @@ class VRMAvatar {
 		this.morphAction = this.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
 	}
 	dispose() {
-		// TODO
+		this.model.traverse(obj => {
+			obj.geometry?.dispose();
+			obj.material?.dispose();
+			obj.material?.map?.dispose();
+			obj.skeleton?.dispose();
+		});
 	}
 }
 
@@ -229,15 +231,17 @@ AFRAME.registerComponent('vrm', {
 		let data = this.data;
 		if (data.src !== oldData.src) {
 			this.remove();
-			new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(data.src, async (gltf) => {
-				this.avatar = await new VRMAvatar().init(gltf);
-				el.setObject3D('avatar', this.avatar.model);
-				el.emit('vrmload', this.avatar, false); // Deprecated
-				el.emit('model-loaded', { format: 'vrm', model: this.avatar.model, avatar: this.avatar }, false);
-				this._updateAvatar();
-			}, undefined, (error) => {
-				el.emit('model-error', { format: 'vrm', src: data.src, cause: error }, false);
-			});
+			if (data.src) {
+				new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(data.src, async (gltf) => {
+					this.avatar = await new VRMAvatar().init(gltf);
+					el.setObject3D('avatar', this.avatar.model);
+					el.emit('vrmload', this.avatar, false); // Deprecated
+					el.emit('model-loaded', { format: 'vrm', model: this.avatar.model, avatar: this.avatar }, false);
+					this._updateAvatar();
+				}, undefined, (error) => {
+					el.emit('model-error', { format: 'vrm', src: data.src, cause: error }, false);
+				});
+			}
 		}
 		this._updateAvatar();
 	},
@@ -327,7 +331,6 @@ AFRAME.registerComponent('vrm-bvh', {
 			},
 			Object.keys(tracks).map(k => this.avatar.bones[k] || { name: k })
 		);
-		clip.tracks.forEach(t => t.setInterpolation(THREE.InterpolateSmooth));
 		this.clip = clip;
 		this.animation = this.avatar.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
 	},
@@ -567,6 +570,9 @@ AFRAME.registerComponent('vrm-poser', {
 	_removeHandles() {
 		this.binds.forEach(([b, t]) => {
 			this.el.removeChild(t.el);
+			let obj = t.el.getObject3D('handle');
+			obj?.material?.dispose();
+			obj?.geometry?.dispose();
 			t.el.destroy();
 		});
 		this.binds = [];
