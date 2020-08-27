@@ -62,6 +62,7 @@ AFRAME.registerComponent('camera-control', {
 
     },
     resetPosition() {
+        this.el.sceneEl.querySelector('a-sky').object3D.visible = !this.el.sceneEl.is('ar-mode');
         if (this.el.sceneEl.is('vr-mode')) {
             this.el.setAttribute('position', this.data.vrHomePosition);
         } else {
