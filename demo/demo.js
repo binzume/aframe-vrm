@@ -189,6 +189,10 @@ window.addEventListener('DOMContentLoaded', (ev) => {
         vrmEl.setAttribute('vrm', 'firstPerson', ev.detail.value ? 'a-camera' : null);
     });
 
+    document.getElementById('physics-toggle').addEventListener('change', (ev) => {
+        vrmEl.setAttribute('vrm', 'enablePhysics', ev.detail.value);
+    });
+
     document.getElementById('bone-toggle').addEventListener('change', (ev) => {
         let containerEl = document.querySelector('#bone-buttons');
         if (ev.detail.value) {

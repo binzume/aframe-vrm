@@ -11,7 +11,10 @@ class VRMAvatar {
 		this._zV = new THREE.Vector3(0, 0, -1);
 		this._tmpQ0 = new THREE.Quaternion();
 		this._tmpV0 = new THREE.Vector3();
+		this._tmpV1 = new THREE.Vector3();
 		this._annotatedMeshes = [];
+		this.physics = null;
+		this.enablePhysics = false;
 		// TODO: configurable constraints
 		this.boneConstraints = {
 			'head': { type: 'ball', limit: 60 * Math.PI / 180, twistAxis: new THREE.Vector3(0, 1, 0), twistLimit: 60 * Math.PI / 180 },
@@ -22,7 +25,7 @@ class VRMAvatar {
 			'rightLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 0 * Math.PI / 180 }
 		};
 	}
-	async init(gltf) {
+	async init(gltf, scene) {
 		let vrmExt = gltf.userData?.gltfExtensions?.VRM;
 		this.model = gltf.scene;
 		this.mixer = new THREE.AnimationMixer(this.model);
@@ -54,11 +57,149 @@ class VRMAvatar {
 			this._annotatedMeshes =
 				vrmExt.firstPerson.meshAnnotations.map(ma => ({ flag: ma.firstPersonFlag, mesh: meshes[ma.mesh] }));
 		}
+		if (vrmExt.secondaryAnimation && globalThis.CANNON) {
+			let world = new CANNON.World();
+			let springBoneSystem = {
+				world: world,
+				objects: [], // : [{body, force, parentBody, boneGroup}]
+				update() {
+					let g = this.world.gravity, dt = this.world.dt;
+					let _q0 = new CANNON.Quaternion();
+					let _q1 = new CANNON.Quaternion();
+					let _v0 = new CANNON.Vec3();
+					let avlimit = 0.05;
+					for (let b of this.objects) {
+						let body = b.body, parent = b.parentBody;
+						// Cancel world.gravity and apply boneGroup.gravity.
+						let f = body.force, m = body.mass, g2 = b.force;
+						f.x += m * (-g.x + g2.x);
+						f.y += m * (-g.y + g2.y);
+						f.z += m * (-g.z + g2.z);
+
+						// angularVelocity limitation
+						let av = body.angularVelocity.length();
+						if (av > avlimit) {
+							body.angularVelocity.scale(avlimit / av, body.angularVelocity);
+						}
+
+						// apply spring(?) force.
+						let stiffness = b.boneGroup.stiffiness; // stiff'i'ness
+						let rot = body.quaternion.mult(parent.quaternion.inverse(_q0), _q1);
+						let [axis, rad] = rot.toAxisAngle(_v0);
+						let af = axis.scale(- rad * stiffness * 0.1, axis);
+						body.torque.vadd(af, body.torque);
+					}
+				},
+			};
+			world.subsystems.push(springBoneSystem);
+			this._initPhysics(vrmExt.secondaryAnimation.boneGroups, nodes, world, springBoneSystem, scene);
+		}
+
 		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
 		return this;
 	}
+	_initPhysics(boneGroups, nodes, world, springBoneSystem, scene) {
+		console.log(boneGroups);
+		let debug = false;
+		let geometry, material, bodyObj = null;
+		if (debug) {
+			geometry = new THREE.BoxGeometry(1, 1, 1);
+			material = new THREE.MeshBasicMaterial({ color: new THREE.Color("red") });
+		}
+
+		let binds = [];
+		let fixedBinds = [];
+		for (let bg of boneGroups) {
+			let gravity = new CANNON.Vec3().copy(bg.gravityDir || { x: 0, y: -1, z: 0 }).scale(bg.gravityPower || 0);
+			for (let b of bg.bones) {
+				nodes[b].updateWorldMatrix(true, true);
+				let root = new CANNON.Body({ mass: 0 });
+				root.position.copy(nodes[b].getWorldPosition(this._tmpV0));
+				root.quaternion.copy(nodes[b].parent.getWorldQuaternion(this._tmpQ0));
+				root.collisionFilterGroup = 0;
+				root.collisionFilterMask = 0;
+				world.add(root);
+				let add = (parentBody, node, depth) => {
+					let n = node.children.length + 1;
+					let c = node.getWorldPosition(this._tmpV0);
+					let wpos = c.clone(); // TODO
+					if (node.children.length > 0) {
+						node.children.forEach(n => {
+							c.add(n.getWorldPosition(this._tmpV1));
+						});
+					} else {
+						c.add(node.parent.getWorldPosition(this._tmpV1).sub(c).normalize().multiplyScalar(-0.1).add(c));
+						n = 2;
+					}
+					c.multiplyScalar(1 / n);
+
+					let body = new CANNON.Body({ mass: 0.1 });
+					body.position.copy(c);
+					body.collisionFilterGroup = 0;
+					body.collisionFilterMask = 0;
+					body.linearDamping = Math.max(bg.dragForce || 0, 0.01);
+					body.angularDamping = Math.max(bg.dragForce || 0, 0.9);
+					body.addShape(new CANNON.Sphere(bg.hitRadius || 0.05));
+					world.add(body);
+
+					if (debug) {
+						bodyObj = new THREE.Mesh(geometry, material);
+						bodyObj.scale.set(bg.hitRadius, bg.hitRadius, bg.hitRadius);
+						scene.add(bodyObj);
+					}
+
+					let o = new CANNON.Vec3(0, 0, 0).copy(this._tmpV1.copy(wpos).sub(c));
+					let d = new CANNON.Vec3(0, 0, 0).copy(wpos.sub(parentBody.position));
+					let joint = new CANNON.PointToPointConstraint(body, o, parentBody, d);
+					world.addConstraint(joint);
+
+					binds.push([node, body, bodyObj]);
+					node.children.forEach(n => add(body, n, depth + 1));
+					springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg });
+				};
+				add(root, nodes[b], 0);
+
+				fixedBinds.push([nodes[b], root]);
+			}
+		}
+		this.physics = { world: world, fixedBinds: fixedBinds, binds: binds };
+		this.physicsNeedReset = true;
+	}
+	resetPhysics() {
+		if (this.physics) {
+			this.physics.fixedBinds.forEach(([node, body]) => {
+				body.position.copy(node.getWorldPosition(this._tmpV0));
+				body.quaternion.copy(node.parent.getWorldQuaternion(this._tmpQ0));
+			});
+			this.physics.binds.forEach(([node, body]) => {
+				body.position.copy(node.getWorldPosition(this._tmpV0));
+				body.quaternion.copy(node.getWorldQuaternion(this._tmpQ0));
+				body.velocity.set(0, 0, 0);
+				body.angularVelocity.set(0, 0, 0);
+			});
+		}
+	}
+	_updatePhysics(timeDelta) {
+		if (this.physicsNeedReset) {
+			this.physicsNeedReset = false;
+			this.resetPhysics();
+			return;
+		}
+		this.physics.fixedBinds.forEach(([node, body]) => {
+			body.position.copy(node.getWorldPosition(this._tmpV0));
+			body.quaternion.copy(node.parent.getWorldQuaternion(this._tmpQ0));
+		});
+		this.physics.world.step(1 / 120, timeDelta);
+		this.physics.binds.forEach(([node, body]) => node.quaternion.copy(body.quaternion).premultiply(node.parent.getWorldQuaternion(this._tmpQ0).inverse()));
+		this.physics.binds.forEach(([_node, body, d]) => {
+			if (d) {
+				d.position.copy(body.position).x += 1;
+				d.quaternion.copy(body.quaternion);
+			}
+		});
+	}
 	tick(timeDelta) {
-		this.mixer.update(timeDelta / 1000);
+		this.mixer.update(timeDelta);
 		if (this.lookAtTarget) {
 			let b = this.firstPersonBone || this.bones['head'];
 			if (!b) {
@@ -76,6 +217,9 @@ class VRMAvatar {
 				rot.setFromAxisAngle(this._tmpV0.copy(rot).normalize(), boneLimit);
 			}
 			b.quaternion.slerp(rot, speedFactor);
+		}
+		if (this.enablePhysics && this.physics) {
+			this._updatePhysics(timeDelta);
 		}
 	}
 	setBlendShapeWeight(name, value) {
@@ -115,15 +259,41 @@ class VRMAvatar {
 				a.mesh.visible = firstPerson;
 			} else if (a.flag == 'Auto' && this.firstPersonBone) {
 				if (firstPerson) {
-					this.genFirstPersonMesh(a.mesh);
+					this._genFirstPersonMesh(a.mesh);
 				} else {
-					this.resetFirstPersonMesh(a.mesh);
+					this._resetFirstPersonMesh(a.mesh);
 				}
 			}
 		});
 	}
-	genFirstPersonMesh(mesh) {
-		mesh.children.forEach(c => this.genFirstPersonMesh(c));
+	getPose(exportMorph) {
+		let poseData = {}
+		poseData.bones = Object.keys(this.bones).map((name) =>
+			({ name: name, q: this.bones[name].quaternion.toArray() })
+		);
+		if (exportMorph) {
+			poseData.blendShape = Object.keys(this.blendShapes).map((name) =>
+				({ name: name, value: this.getBlendShapeWeight(name) })
+			);
+		}
+		return poseData
+	}
+	setPose(pose) {
+		if (pose.bones) {
+			for (let boneParam of pose.bones) {
+				if (this.bones[boneParam.name]) {
+					this.bones[boneParam.name].quaternion.fromArray(boneParam.q);
+				}
+			}
+		}
+		if (pose.blendShape) {
+			for (let morph of pose.blendShape) {
+				this.setBlendShapeWeight(morph.name, morph.value)
+			}
+		}
+	}
+	_genFirstPersonMesh(mesh) {
+		mesh.children.forEach(c => this._genFirstPersonMesh(c));
 		// TODO
 		if (mesh.isSkinnedMesh) {
 			let firstPersonBones = {};
@@ -161,8 +331,8 @@ class VRMAvatar {
 			// TODO: erase triangle.
 		}
 	}
-	resetFirstPersonMesh(mesh) {
-		mesh.children.forEach(c => this.resetFirstPersonMesh(c));
+	_resetFirstPersonMesh(mesh) {
+		mesh.children.forEach(c => this._resetFirstPersonMesh(c));
 		mesh.visible = true;
 	}
 	_updateBlendShape() {
@@ -222,6 +392,7 @@ AFRAME.registerComponent('vrm', {
 		blink: { default: true },
 		blinkInterval: { default: 5 },
 		lookAt: { type: 'selector' },
+		enablePhysics: { default: false },
 	},
 	init() {
 		this.avatar = null;
@@ -233,7 +404,7 @@ AFRAME.registerComponent('vrm', {
 			this.remove();
 			if (data.src) {
 				new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(data.src, async (gltf) => {
-					this.avatar = await new VRMAvatar().init(gltf);
+					this.avatar = await new VRMAvatar().init(gltf, el.sceneEl.object3D);
 					el.setObject3D('avatar', this.avatar.model);
 					el.emit('vrmload', this.avatar, false); // Deprecated
 					el.emit('model-loaded', { format: 'vrm', model: this.avatar.model, avatar: this.avatar }, false);
@@ -246,7 +417,7 @@ AFRAME.registerComponent('vrm', {
 		this._updateAvatar();
 	},
 	tick(time, timeDelta) {
-		this.avatar?.tick(timeDelta);
+		this.avatar?.tick(timeDelta / 1000);
 	},
 	remove() {
 		if (this.avatar) {
@@ -258,6 +429,7 @@ AFRAME.registerComponent('vrm', {
 		if (!this.avatar) {
 			return;
 		}
+		this.avatar.enablePhysics = this.data.enablePhysics;
 		this.avatar.setFirstPerson(this.data.firstPerson);
 		if (this.data.lookAt?.tagName == 'A-CAMERA') {
 			this.avatar.lookAtTarget = this.el.sceneEl.camera;
@@ -451,33 +623,13 @@ AFRAME.registerComponent('vrm-poser', {
 		if (!this.avatar) {
 			return;
 		}
-		let poseData = {}
-		poseData.bones = Object.keys(this.avatar.bones).map((name) =>
-			({ name: name, q: this.avatar.bones[name].quaternion.toArray() })
-		);
-		if (exportMorph) {
-			poseData.blendShape = Object.keys(this.avatar.blendShapes).map((name) =>
-				({ name: name, value: this.avatar.getBlendShapeWeight(name) })
-			);
-		}
-		return poseData
+		return this.avatar.getPose(exportMorph);
 	},
 	setPoseData(pose) {
 		if (!this.avatar) {
 			return;
 		}
-		if (pose.bones) {
-			for (let boneParam of pose.bones) {
-				if (this.avatar.bones[boneParam.name]) {
-					this.avatar.bones[boneParam.name].quaternion.fromArray(boneParam.q);
-				}
-			}
-		}
-		if (pose.blendShape) {
-			for (let morph of pose.blendShape) {
-				this.avatar.setBlendShapeWeight(morph.name, morph.value)
-			}
-		}
+		this.avatar.setPose(pose);
 		this._updateHandlePosition();
 	},
 	_onAvatarUpdated(avatar) {
@@ -485,6 +637,9 @@ AFRAME.registerComponent('vrm-poser', {
 		this.avatar = avatar;
 		let geometry = new THREE.BoxGeometry(1, 1, 1);
 		let material = new THREE.MeshBasicMaterial({ color: new THREE.Color(this.data.color) });
+		material.depthTest = false;
+		material.transparent = true;
+		material.opacity = 0.4;
 		let _v0 = this._tmpV0, _v1 = this._tmpV1, _m = this._tmpM0, _q = this._tmpQ0;
 		let rootNode = avatar.bones['hips'];
 		let boneNameByUUID = {};
@@ -492,9 +647,6 @@ AFRAME.registerComponent('vrm-poser', {
 			let bone = avatar.bones[name];
 			let isRoot = bone == rootNode;
 			let cube = new THREE.Mesh(geometry, material);
-			material.depthTest = false;
-			material.transparent = true;
-			material.opacity = 0.4;
 			let targetEl = document.createElement('a-entity');
 			targetEl.classList.add('collidable');
 			targetEl.setAttribute('xy-drag-control', {});

@@ -7,6 +7,7 @@
   <title>VRM Test</title>
   <script src="https://binzume.github.io/aframe/dist/aframe-master.min.js"></script>
   <script src="https://binzume.github.io/aframe-xylayout/dist/xylayout-all.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
   <script src="../vrm.js"></script>
   <script src="demo.js"></script>
 </head>
@@ -45,6 +46,10 @@
         <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
           <a-xylabel value="FirstPerson" width="2"></a-xylabel>
           <a-xytoggle id="first-person-toggle" value="false"></a-xytoggle>
+        </a-xycontainer>
+        <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xylabel value="Physics" width="2"></a-xylabel>
+          <a-xytoggle id="physics-toggle" value="false"></a-xytoggle>
         </a-xycontainer>
         <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
           <a-xylabel value="Edit Pose" width="2"></a-xylabel>
