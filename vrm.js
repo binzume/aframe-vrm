@@ -148,8 +148,8 @@ class VRMAvatar {
 
 					let body = new CANNON.Body({ mass: 0.1 });
 					body.position.copy(c);
-					body.collisionFilterGroup = 1;
-					body.collisionFilterMask = 1;
+					body.collisionFilterGroup = 2;
+					body.collisionFilterMask = 255 - 2; // TODO
 					body.linearDamping = Math.max(bg.dragForce || 0, 0.01);
 					body.angularDamping = Math.max(bg.dragForce || 0, 0.01);
 					body.addShape(new CANNON.Sphere(bg.hitRadius || 0.05));
@@ -439,6 +439,14 @@ AFRAME.registerComponent('vrm', {
 					this.avatar = await new VRMAvatar().init(gltf, el.sceneEl.object3D, this.world);
 					el.setObject3D('avatar', this.avatar.model);
 					el.emit('model-loaded', { format: 'vrm', model: this.avatar.model, avatar: this.avatar }, false);
+					if (this.world) {
+						// update collision mask.
+						this.world.bodies.forEach(b => {
+							if (b.collisionFilterGroup == 1) {
+								b.collisionFilterMask |= 2;
+							}
+						});
+					}
 					this._updateAvatar();
 				}, undefined, (error) => {
 					el.emit('model-error', { format: 'vrm', src: data.src, cause: error }, false);

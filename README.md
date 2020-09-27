@@ -9,7 +9,7 @@
 - DEMO1 https://binzume.github.io/aframe-vrm/demo/
 - VRM/BVHファイルをブラウザにドラッグ＆ドロップするとプレビューできます(アップロードはされません)
 - WebVRはOculus Questでテストしています
-- [Physics test](https://binzume.github.io/aframe-vrm/demo/physics.html) using [aframe-physics-system](https://github.com/n5ro/aframe-physics-system)
+- [Physics test](https://binzume.github.io/aframe-vrm/demo/physics.html) (using [aframe-physics-system](https://github.com/n5ro/aframe-physics-system))
 
 ![AliciaSolid](./demo/alicia1.gif)
 
