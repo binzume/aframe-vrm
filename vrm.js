@@ -14,6 +14,7 @@ class VRMAvatar {
 		this._tmpV1 = new THREE.Vector3();
 		this._annotatedMeshes = [];
 		this.physics = null;
+		this.physicsInternalWorld = null;
 		this.enablePhysics = false;
 		// TODO: configurable constraints
 		this.boneConstraints = {
@@ -25,7 +26,7 @@ class VRMAvatar {
 			'rightLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 0 * Math.PI / 180 }
 		};
 	}
-	async init(gltf, scene) {
+	async init(gltf, scene, physicsWorld) {
 		let vrmExt = gltf.userData?.gltfExtensions?.VRM;
 		this.model = gltf.scene;
 		this.mixer = new THREE.AnimationMixer(this.model);
@@ -58,47 +59,52 @@ class VRMAvatar {
 				vrmExt.firstPerson.meshAnnotations.map(ma => ({ flag: ma.firstPersonFlag, mesh: meshes[ma.mesh] }));
 		}
 		if (vrmExt.secondaryAnimation && globalThis.CANNON) {
-			let world = new CANNON.World();
-			let springBoneSystem = {
-				world: world,
-				objects: [], // : [{body, force, parentBody, boneGroup}]
-				update() {
-					let g = this.world.gravity, dt = this.world.dt;
-					let _q0 = new CANNON.Quaternion();
-					let _q1 = new CANNON.Quaternion();
-					let _v0 = new CANNON.Vec3();
-					let avlimit = 0.05;
-					for (let b of this.objects) {
-						let body = b.body, parent = b.parentBody;
-						// Cancel world.gravity and apply boneGroup.gravity.
-						let f = body.force, m = body.mass, g2 = b.force;
-						f.x += m * (-g.x + g2.x);
-						f.y += m * (-g.y + g2.y);
-						f.z += m * (-g.z + g2.z);
-
-						// angularVelocity limitation
-						let av = body.angularVelocity.length();
-						if (av > avlimit) {
-							body.angularVelocity.scale(avlimit / av, body.angularVelocity);
-						}
-
-						// apply spring(?) force.
-						let stiffness = b.boneGroup.stiffiness; // stiff'i'ness
-						let rot = body.quaternion.mult(parent.quaternion.inverse(_q0), _q1);
-						let [axis, rad] = rot.toAxisAngle(_v0);
-						let af = axis.scale(- rad * stiffness * 0.1, axis);
-						body.torque.vadd(af, body.torque);
-					}
-				},
-			};
-			world.subsystems.push(springBoneSystem);
-			this._initPhysics(vrmExt.secondaryAnimation.boneGroups, nodes, world, springBoneSystem, scene);
+			let world = physicsWorld || (this.physicsInternalWorld = new CANNON.World());
+			this._initPhysics(vrmExt.secondaryAnimation.boneGroups, nodes, world, scene);
 		}
 
 		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
 		return this;
 	}
-	_initPhysics(boneGroups, nodes, world, springBoneSystem, scene) {
+	_initPhysics(boneGroups, nodes, world, scene) {
+		let springBoneSystem = {
+			world: world,
+			objects: [], // : [{body, force, parentBody, boneGroup}]
+			update() {
+				let g = this.world.gravity, dt = this.world.dt;
+				let _q0 = new CANNON.Quaternion();
+				let _q1 = new CANNON.Quaternion();
+				let _v0 = new CANNON.Vec3();
+				let avlimit = 0.05;
+				for (let b of this.objects) {
+					let body = b.body, parent = b.parentBody;
+					// Cancel world.gravity and apply boneGroup.gravity.
+					let f = body.force, m = body.mass, g2 = b.force;
+					f.x += m * (-g.x + g2.x);
+					f.y += m * (-g.y + g2.y);
+					f.z += m * (-g.z + g2.z);
+
+					// angularVelocity limitation
+					let av = body.angularVelocity.length();
+					if (av > avlimit) {
+						body.angularVelocity.scale(avlimit / av, body.angularVelocity);
+					}
+
+					// apply spring(?) force.
+					let stiffness = b.boneGroup.stiffiness; // stiff'i'ness
+					let rot = body.quaternion.mult(parent.quaternion.inverse(_q0), _q1);
+					let [axis, rad] = rot.toAxisAngle(_v0);
+					let tf = rad * stiffness;
+					if (tf > rad / dt / dt * 0.00025) {
+						tf = rad / dt / dt * 0.00025; // TODO
+					}
+					let af = axis.scale(-tf * m, axis);
+					body.torque.vadd(af, body.torque);
+				}
+			},
+		};
+		world.subsystems.push(springBoneSystem);
+
 		console.log(boneGroups);
 		let debug = false;
 		let geometry, material, bodyObj = null;
@@ -109,6 +115,12 @@ class VRMAvatar {
 
 		let binds = [];
 		let fixedBinds = [];
+		let bodies = [];
+		let constraints = [];
+		this.physics = {
+			world: world, fixedBinds: fixedBinds, binds: binds,
+			bodies: bodies, constraints: constraints, springBoneSystem: springBoneSystem
+		};
 		for (let bg of boneGroups) {
 			let gravity = new CANNON.Vec3().copy(bg.gravityDir || { x: 0, y: -1, z: 0 }).scale(bg.gravityPower || 0);
 			for (let b of bg.bones) {
@@ -119,6 +131,7 @@ class VRMAvatar {
 				root.collisionFilterGroup = 0;
 				root.collisionFilterMask = 0;
 				world.add(root);
+				bodies.push(root);
 				let add = (parentBody, node, depth) => {
 					let n = node.children.length + 1;
 					let c = node.getWorldPosition(this._tmpV0);
@@ -135,14 +148,15 @@ class VRMAvatar {
 
 					let body = new CANNON.Body({ mass: 0.1 });
 					body.position.copy(c);
-					body.collisionFilterGroup = 0;
-					body.collisionFilterMask = 0;
+					body.collisionFilterGroup = 1;
+					body.collisionFilterMask = 1;
 					body.linearDamping = Math.max(bg.dragForce || 0, 0.01);
-					body.angularDamping = Math.max(bg.dragForce || 0, 0.9);
+					body.angularDamping = Math.max(bg.dragForce || 0, 0.01);
 					body.addShape(new CANNON.Sphere(bg.hitRadius || 0.05));
 					world.add(body);
+					bodies.push(body);
 
-					if (debug) {
+					if (debug && scene) {
 						bodyObj = new THREE.Mesh(geometry, material);
 						bodyObj.scale.set(bg.hitRadius, bg.hitRadius, bg.hitRadius);
 						scene.add(bodyObj);
@@ -152,17 +166,17 @@ class VRMAvatar {
 					let d = new CANNON.Vec3(0, 0, 0).copy(wpos.sub(parentBody.position));
 					let joint = new CANNON.PointToPointConstraint(body, o, parentBody, d);
 					world.addConstraint(joint);
+					constraints.push(joint);
 
 					binds.push([node, body, bodyObj]);
-					node.children.forEach(n => add(body, n, depth + 1));
 					springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg });
+					node.children.forEach(n => n.isBone && add(body, n, depth + 1));
 				};
 				add(root, nodes[b], 0);
 
 				fixedBinds.push([nodes[b], root]);
 			}
 		}
-		this.physics = { world: world, fixedBinds: fixedBinds, binds: binds };
 		this.physicsNeedReset = true;
 	}
 	resetPhysics() {
@@ -189,7 +203,9 @@ class VRMAvatar {
 			body.position.copy(node.getWorldPosition(this._tmpV0));
 			body.quaternion.copy(node.parent.getWorldQuaternion(this._tmpQ0));
 		});
-		this.physics.world.step(1 / 120, timeDelta);
+		if (this.physicsInternalWorld) {
+			this.physicsInternalWorld.step(1 / 60, timeDelta);
+		}
 		this.physics.binds.forEach(([node, body]) => node.quaternion.copy(body.quaternion).premultiply(node.parent.getWorldQuaternion(this._tmpQ0).inverse()));
 		this.physics.binds.forEach(([_node, body, d]) => {
 			if (d) {
@@ -382,6 +398,17 @@ class VRMAvatar {
 			obj.material?.map?.dispose();
 			obj.skeleton?.dispose();
 		});
+		if (this.physics) {
+			this.physics.world.subsystems = this.physics.world.subsystems.filter(
+				s => s != this.physics.springBoneSystem
+			);
+			this.physics.world.constraints = this.physics.world.constraints.filter(
+				c => !this.physics.constraints.includes(c)
+			);
+			this.physics.world.bodies = this.physics.world.bodies.filter(
+				c => !this.physics.bodies.includes(c)
+			);
+		}
 	}
 }
 
@@ -396,6 +423,11 @@ AFRAME.registerComponent('vrm', {
 	},
 	init() {
 		this.avatar = null;
+		if (globalThis.CANNON && this.el.sceneEl.systems.physics && this.el.sceneEl.systems.physics.driver) {
+			// overrride physics
+			// TODO: use same version of cannon.js.
+			this.world = this.el.sceneEl.systems.physics.driver.world = new CANNON.World();
+		}
 	},
 	update(oldData) {
 		let el = this.el;
@@ -404,9 +436,8 @@ AFRAME.registerComponent('vrm', {
 			this.remove();
 			if (data.src) {
 				new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(data.src, async (gltf) => {
-					this.avatar = await new VRMAvatar().init(gltf, el.sceneEl.object3D);
+					this.avatar = await new VRMAvatar().init(gltf, el.sceneEl.object3D, this.world);
 					el.setObject3D('avatar', this.avatar.model);
-					el.emit('vrmload', this.avatar, false); // Deprecated
 					el.emit('model-loaded', { format: 'vrm', model: this.avatar.model, avatar: this.avatar }, false);
 					this._updateAvatar();
 				}, undefined, (error) => {

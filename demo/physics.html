@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>VRM Test</title>
+  <script src="https://binzume.github.io/aframe/dist/aframe-master.min.js"></script>
+  <script src="https://binzume.github.io/aframe-xylayout/dist/xylayout-all.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+  <script src="//cdn.rawgit.com/donmccurdy/aframe-physics-system/v4.0.1/dist/aframe-physics-system.min.js"></script>
+  <script src="../vrm.js"></script>
+  <script src="demo.js"></script>
+</head>
+
+<body style="background-color: black; color:white;">
+  <a-scene fog="type: linear; color: #25a; near:20;far:100;">
+    <a-sky></a-sky>
+    <a-entity id="mouse-cursor" cursor="rayOrigin: mouse; fuse:false" raycaster="objects:.collidable"></a-entity>
+
+    <a-plane id='ground' wireframe='true' width='10' height='10' segments-height='10' segments-width='10' rotation='90 0 0'></a-plane>
+
+    <!-- VRM avatar -->
+    <a-entity id="avatar" vrm="src:assets/AliciaSolid/AliciaSolid.vrm;lookAt:a-camera;enablePhysics:true" vrm-bvh="" rotation="0 180 0"></a-entity>
+
+    <a-box width="0.1" height="0.1" depth="0.1" position="0 0.05 0.5" color="red" xy-drag-control static-body></a-box>
+
+    <a-entity id="camera-rig" position-controls="axismove:x" camera-control="homePosition:0 0 3; vrHomePosition: 0 0 0.5">
+
+      <a-camera look-controls="enabled:false" position="0 1.5 0"></a-camera>
+
+      <a-entity laser-controls="hand: right" id="rightHand" raycaster="objects:.collidable" static-body="shape:sphere;sphereRadius:0.05"></a-entity>
+      <a-entity laser-controls="hand: left" id="leftHand" raycaster="objects:.collidable" static-body="shape:sphere;sphereRadius:0.05"></a-entity>
+
+      <!-- Avatar control panel -->
+      <a-xywindow position="-7 3 -9" title="Models" width="3" height="4" window-locator xycontainer="direction:column">
+        <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xylabel value="AutoBlink" width="2"></a-xylabel>
+          <a-xytoggle id="blink-toggle" value="true"></a-xytoggle>
+        </a-xycontainer>
+        <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xylabel value="LookAtCam" width="2"></a-xylabel>
+          <a-xytoggle id="lookat-toggle" value="true"></a-xytoggle>
+        </a-xycontainer>
+        <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xylabel value="Skeleton" width="2"></a-xylabel>
+          <a-xytoggle id="skeleton-toggle" value="false"></a-xytoggle>
+        </a-xycontainer>
+        <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xylabel value="FirstPerson" width="2"></a-xylabel>
+          <a-xytoggle id="first-person-toggle" value="false"></a-xytoggle>
+        </a-xycontainer>
+        <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xylabel value="Physics" width="2"></a-xylabel>
+          <a-xytoggle id="physics-toggle" value="false"></a-xytoggle>
+        </a-xycontainer>
+        <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xylabel value="Edit Pose" width="2"></a-xylabel>
+          <a-xytoggle id="bone-toggle" value="false"></a-xytoggle>
+        </a-xycontainer>
+        <a-xycontainer id="bone-buttons" visible="false" height="0.6" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xybutton id="bone-save-button" label="Save Pose" height=0.5></a-xybutton>
+          <a-xybutton id="bone-load-button" label="Load Pose" height=0.5></a-xybutton>
+        </a-xycontainer>
+        <a-xycontainer height="0.6" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xyselect id="animation-select" label="Motion" width="0.5" height="0.4"></a-xyselect>
+          <a-xybutton id="stop-animation-button" label="stop" width="1"></a-xybutton>
+        </a-xycontainer>
+        <a-xyscroll width=3 height=4 scrollbar=false>
+          <a-entity id="model-list" xylist="itemHeight:0.5" xyrect=""></a-entity>
+        </a-xyscroll>
+      </a-xywindow>
+
+      <!-- Blend shape panel -->
+      <a-xywindow position="7 3 -9" title="BlendShape" width="3" height="4" pose-editor-window window-locator
+        xycontainer="direction:column">
+        <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
+          <a-xybutton name="reset-all-morph" label="ResetAll" height=0.5></a-xybutton>
+        </a-xycontainer>
+        <a-xyscroll width=3 height=4 scrollbar=false>
+          <a-entity name="item-list" xylist="itemHeight:0.5" xyrect="width:3"></a-entity>
+        </a-xyscroll>
+      </a-xywindow>
+
+    </a-entity>
+  </a-scene>
+
+  <div style="position:absolute;top:10pt;right:10pt;width:60pt;background-color:white;border-radius:4pt;text-align:center;">
+    <a href="https://github.com/binzume/aframe-vrm">GitHub</a>
+  </div>
+</body>
+
+</html>
