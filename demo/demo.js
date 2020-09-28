@@ -248,23 +248,28 @@ window.addEventListener('DOMContentLoaded', (ev) => {
     });
 
     // Physics: dragging dynamic-body.
-    let draggingEl = null;
-    let draggingObjectMass = 1;
     for (let el of document.querySelectorAll('[dynamic-body]')) {
         el.addEventListener('mousedown', ev => {
-            if (!draggingEl) {
-                // set mass = 0
-                draggingEl = el;
-                draggingObjectMass = el.getAttribute('dynamic-body').mass;
-                el.setAttribute('dynamic-body', 'mass', 0);
-            }
+            // set mass = 0
+            let draggingObjectMass = el.getAttribute('dynamic-body').mass;
+            el.setAttribute('dynamic-body', 'mass', 0);
+            let prevPos = el.object3D.position.clone();
+            let prevTime = el.sceneEl.time;
+            let v = new THREE.Vector3(0, 0, 0);
+            let timer = setInterval(() => {
+                let dt = el.sceneEl.time - prevTime;
+                if (dt > 0) {
+                    v.copy(el.object3D.position).sub(prevPos).multiplyScalar(1000 / dt);
+                }
+                prevPos.copy(el.object3D.position);
+                prevTime = el.sceneEl.time;
+            }, 50);
+            window.addEventListener('mouseup', ev => {
+                clearInterval(timer);
+                // restore mass
+                el.setAttribute('dynamic-body', 'mass', draggingObjectMass);
+                el.body.velocity.copy(v);
+            }, { once: true });
         });
     }
-    window.addEventListener('mouseup', ev => {
-        if (draggingEl) {
-            // restore mass
-            draggingEl.setAttribute('dynamic-body', 'mass', draggingObjectMass);
-            draggingEl = null;
-        }
-    });
 }, { once: true });
