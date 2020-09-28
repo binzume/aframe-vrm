@@ -126,6 +126,105 @@ AFRAME.registerComponent('pose-editor-window', {
     }
 });
 
+AFRAME.registerComponent('hand-controller', {
+    schema: {
+        color: { default: '#00ff00' }
+    },
+    init() {
+        this.hands = {};
+        this.physics = null;
+        this._tmpQ0 = new THREE.Quaternion();
+        this._tmpV0 = new THREE.Vector3();
+        if (this.el.sceneEl.systems.webxr) {
+            this.el.sceneEl.setAttribute('webxr', 'optionalFeatures:bounded-floor,hand-tracking');
+            let hand0 = this.el.sceneEl.renderer.xr.getHand(0);
+            hand0.addEventListener('connected', ev => this._handConnected(hand0, ev, 'hand0'));
+            hand0.addEventListener('disconnected', ev => this._handDisconnected(hand0, ev, 'hand0'));
+            let hand1 = this.el.sceneEl.renderer.xr.getHand(1);
+            hand1.addEventListener('connected', ev => this._handConnected(hand1, ev, 'hand1'));
+            hand1.addEventListener('disconnected', ev => this._handDisconnected(hand1, ev, 'hand1'));
+        }
+        if (globalThis.CANNON && this.el.sceneEl.systems.physics && this.el.sceneEl.systems.physics.driver) {
+            this.physics = { driver: this.el.sceneEl.systems.physics.driver };
+        }
+    },
+    tick() {
+        let hands = Object.values(this.hands);
+        if (hands.length == 0) {
+            this.pause();
+        }
+        hands.forEach(hand => {
+            hand.binds.forEach(([node, obj, body]) => {
+                obj.position.copy(node.getWorldPosition(this._tmpV0));
+                obj.quaternion.copy(node.getWorldQuaternion(this._tmpQ0));
+                obj.visible = node.visible;
+                if (body) {
+                    body.position.copy(obj.getWorldPosition(this._tmpV0));
+                    body.quaternion.copy(obj.getWorldQuaternion(this._tmpQ0));
+                }
+            });
+        });
+    },
+    remove() {
+        let names = Object.keys(this.hands);
+        names.forEach(name => {
+            this.el.removeObject3D(name);
+        });
+    },
+    _handConnected(hand, ev, name) {
+        if (!ev.data.hand || this.hands[name]) {
+            return;
+        }
+        console.log("hand", hand, ev);
+        let geometry = new THREE.BoxGeometry(1, 1, 1);
+        let material = new THREE.MeshBasicMaterial({ color: new THREE.Color(this.data.color) });
+        material.transparent = true;
+        material.opacity = 0.4;
+
+        let model = new THREE.Group();
+        this.el.setObject3D(name, model);
+        let handData = { hand: hand, model: model, binds: [] };
+        this.hands[name] = handData;
+        for (let joint of hand.joints) {
+            let cube = new THREE.Mesh(geometry, material);
+            let scale = Math.min(joint.jointRadius || 0.015, 0.05);
+            cube.scale.set(scale, scale, scale);
+            model.add(cube);
+            let body = null;
+            if (this.physics) {
+                body = new CANNON.Body({
+                    mass: 0,
+                    collisionFilterGroup: 4,
+                    collisionFilterMask: ~4
+                });
+                body.addShape(new CANNON.Sphere(scale * 0.5));
+                this.physics.driver.addBody(body);
+            }
+            handData.binds.push([joint, cube, body]);
+        }
+        this.play();
+
+        for (let controllerEl of this.el.sceneEl.querySelectorAll('[generic-tracked-controller-controls]')) {
+            controllerEl.setAttribute('generic-tracked-controller-controls', { defaultModel: false });
+            if (this.physics) {
+                controllerEl.removeAttribute('static-body');
+            }
+            console.log(controllerEl);
+        }
+    },
+    _handDisconnected(hand, ev, name) {
+        this.el.removeObject3D(name);
+        if (this.hands[name]) {
+            this.hands[name].binds.forEach(([node, obj, body]) => {
+                if (body) {
+                    this.physics.driver.removeBody(body);
+                }
+            });
+            delete this.hands[name];
+        }
+    }
+});
+
 window.addEventListener('DOMContentLoaded', (ev) => {
 
     let models = [
@@ -249,13 +348,15 @@ window.addEventListener('DOMContentLoaded', (ev) => {
 
     // Physics: dragging dynamic-body.
     for (let el of document.querySelectorAll('[dynamic-body]')) {
+        let dragging = false;
         el.addEventListener('mousedown', ev => {
-            // set mass = 0
-            let draggingObjectMass = el.getAttribute('dynamic-body').mass;
-            el.setAttribute('dynamic-body', 'mass', 0);
+            if (dragging) {
+                return;
+            }
+            dragging = true;
+            let v = new THREE.Vector3(0, 0, 0);
             let prevPos = el.object3D.position.clone();
             let prevTime = el.sceneEl.time;
-            let v = new THREE.Vector3(0, 0, 0);
             let timer = setInterval(() => {
                 let dt = el.sceneEl.time - prevTime;
                 if (dt > 0) {
@@ -264,7 +365,11 @@ window.addEventListener('DOMContentLoaded', (ev) => {
                 prevPos.copy(el.object3D.position);
                 prevTime = el.sceneEl.time;
             }, 50);
-            window.addEventListener('mouseup', ev => {
+            // set mass = 0
+            let draggingObjectMass = el.getAttribute('dynamic-body').mass;
+            el.setAttribute('dynamic-body', 'mass', 0);
+            el.addEventListener('mouseup', ev => {
+                dragging = false;
                 clearInterval(timer);
                 // restore mass
                 el.setAttribute('dynamic-body', 'mass', draggingObjectMass);

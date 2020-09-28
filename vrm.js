@@ -490,8 +490,8 @@ AFRAME.registerComponent('vrm', {
 				if (this.world) {
 					// HACK: update collision mask.
 					this.world.bodies.forEach(b => {
-						if (b.collisionFilterGroup == 1) {
-							b.collisionFilterMask |= this.avatar.collisionGroup;
+						if (b.collisionFilterGroup == 1 && b.collisionFilterMask == 1) {
+							b.collisionFilterMask = -1;
 						}
 					});
 				}
