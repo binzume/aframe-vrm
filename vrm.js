@@ -6,6 +6,8 @@ class VRMAvatar {
 		this.mixer = null;
 		this.bones = {}; // : { boneName : Object3D }
 		this.blendShapes = {}; // : { key : { name:string, binds:[] } }
+		this.physics = null;
+		this.collisionGroup = 2;
 		this._currentShape = {};
 		this._identQ = new THREE.Quaternion();
 		this._zV = new THREE.Vector3(0, 0, -1);
@@ -13,9 +15,6 @@ class VRMAvatar {
 		this._tmpV0 = new THREE.Vector3();
 		this._tmpV1 = new THREE.Vector3();
 		this._annotatedMeshes = [];
-		this.physics = null;
-		this.physicsInternalWorld = null;
-		this.enablePhysics = false;
 		// TODO: configurable constraints
 		this.boneConstraints = {
 			'head': { type: 'ball', limit: 60 * Math.PI / 180, twistAxis: new THREE.Vector3(0, 1, 0), twistLimit: 60 * Math.PI / 180 },
@@ -26,7 +25,7 @@ class VRMAvatar {
 			'rightLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 0 * Math.PI / 180 }
 		};
 	}
-	async init(gltf, scene, physicsWorld) {
+	async init(gltf, scene) {
 		let vrmExt = gltf.userData?.gltfExtensions?.VRM;
 		this.model = gltf.scene;
 		this.mixer = new THREE.AnimationMixer(this.model);
@@ -58,24 +57,27 @@ class VRMAvatar {
 			this._annotatedMeshes =
 				vrmExt.firstPerson.meshAnnotations.map(ma => ({ flag: ma.firstPersonFlag, mesh: meshes[ma.mesh] }));
 		}
-		if (vrmExt.secondaryAnimation && globalThis.CANNON) {
-			let world = physicsWorld || (this.physicsInternalWorld = new CANNON.World());
-			this._initPhysics(vrmExt.secondaryAnimation.boneGroups, nodes, world, scene);
+		if (vrmExt.secondaryAnimation) {
+			this._initPhysics(vrmExt.secondaryAnimation.boneGroups, nodes, scene);
 		}
 
 		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
 		return this;
 	}
-	_initPhysics(boneGroups, nodes, world, scene) {
+	_initPhysics(boneGroups, nodes, scene) {
+		if (!globalThis.CANNON) {
+			return; // need cannon.js
+		}
+		console.log('init physics', boneGroups);
+		let _q0 = new CANNON.Quaternion();
+		let _q1 = new CANNON.Quaternion();
+		let _v0 = new CANNON.Vec3();
 		let springBoneSystem = {
-			world: world,
+			world: null,
 			objects: [], // : [{body, force, parentBody, boneGroup}]
 			update() {
 				let g = this.world.gravity, dt = this.world.dt;
-				let _q0 = new CANNON.Quaternion();
-				let _q1 = new CANNON.Quaternion();
-				let _v0 = new CANNON.Vec3();
-				let avlimit = 0.05;
+				let avlimit = 0.1;
 				for (let b of this.objects) {
 					let body = b.body, parent = b.parentBody;
 					// Cancel world.gravity and apply boneGroup.gravity.
@@ -92,20 +94,19 @@ class VRMAvatar {
 
 					// apply spring(?) force.
 					let stiffness = b.boneGroup.stiffiness; // stiff'i'ness
+					let approxInertia = b.size * b.size * m * 1600;
 					let rot = body.quaternion.mult(parent.quaternion.inverse(_q0), _q1);
 					let [axis, rad] = rot.toAxisAngle(_v0);
 					let tf = rad * stiffness;
 					if (tf > rad / dt / dt * 0.00025) {
 						tf = rad / dt / dt * 0.00025; // TODO
 					}
-					let af = axis.scale(-tf * m, axis);
+					let af = axis.scale(-tf * approxInertia, axis);
 					body.torque.vadd(af, body.torque);
 				}
-			},
+			}
 		};
-		world.subsystems.push(springBoneSystem);
 
-		console.log(boneGroups);
 		let debug = false;
 		let geometry, material, bodyObj = null;
 		if (debug) {
@@ -118,19 +119,16 @@ class VRMAvatar {
 		let bodies = [];
 		let constraints = [];
 		this.physics = {
-			world: world, fixedBinds: fixedBinds, binds: binds,
+			world: null, fixedBinds: fixedBinds, binds: binds,
 			bodies: bodies, constraints: constraints, springBoneSystem: springBoneSystem
 		};
 		for (let bg of boneGroups) {
 			let gravity = new CANNON.Vec3().copy(bg.gravityDir || { x: 0, y: -1, z: 0 }).scale(bg.gravityPower || 0);
 			for (let b of bg.bones) {
 				nodes[b].updateWorldMatrix(true, true);
-				let root = new CANNON.Body({ mass: 0 });
+				let root = new CANNON.Body({ mass: 0, collisionFilterGroup: 0, collisionFilterMask: 0 });
 				root.position.copy(nodes[b].getWorldPosition(this._tmpV0));
 				root.quaternion.copy(nodes[b].parent.getWorldQuaternion(this._tmpQ0));
-				root.collisionFilterGroup = 0;
-				root.collisionFilterMask = 0;
-				world.add(root);
 				bodies.push(root);
 				let add = (parentBody, node, depth) => {
 					let n = node.children.length + 1;
@@ -146,14 +144,15 @@ class VRMAvatar {
 					}
 					c.multiplyScalar(1 / n);
 
-					let body = new CANNON.Body({ mass: 0.1 });
+					let body = new CANNON.Body({
+						mass: 0.5,
+						linearDamping: Math.max(bg.dragForce || 0, 0.01),
+						angularDamping: Math.max(bg.dragForce || 0, 0.01),
+						collisionFilterGroup: this.collisionGroup,
+						collisionFilterMask: ~this.collisionGroup // TODO
+					});
 					body.position.copy(c);
-					body.collisionFilterGroup = 2;
-					body.collisionFilterMask = 255 - 2; // TODO
-					body.linearDamping = Math.max(bg.dragForce || 0, 0.01);
-					body.angularDamping = Math.max(bg.dragForce || 0, 0.01);
 					body.addShape(new CANNON.Sphere(bg.hitRadius || 0.05));
-					world.add(body);
 					bodies.push(body);
 
 					if (debug && scene) {
@@ -165,11 +164,10 @@ class VRMAvatar {
 					let o = new CANNON.Vec3(0, 0, 0).copy(this._tmpV1.copy(wpos).sub(c));
 					let d = new CANNON.Vec3(0, 0, 0).copy(wpos.sub(parentBody.position));
 					let joint = new CANNON.PointToPointConstraint(body, o, parentBody, d);
-					world.addConstraint(joint);
 					constraints.push(joint);
 
 					binds.push([node, body, bodyObj]);
-					springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg });
+					springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg, size: bg.hitRadius || 0.05 });
 					node.children.forEach(n => n.isBone && add(body, n, depth + 1));
 				};
 				add(root, nodes[b], 0);
@@ -177,15 +175,40 @@ class VRMAvatar {
 				fixedBinds.push([nodes[b], root]);
 			}
 		}
-		this.physicsNeedReset = true;
+	}
+	startPhysics(world) {
+		let physics = this.physics;
+		if (!physics) {
+			return;
+		}
+		physics.internalWorld = world == null;
+		world = world || new CANNON.World();
+		physics.world = world;
+		physics.springBoneSystem.world = world;
+		world.subsystems.push(physics.springBoneSystem);
+		physics.bodies.forEach(b => world.add(b));
+		physics.constraints.forEach(c => world.addConstraint(c));
+		this.resetPhysics();
+	}
+	stopPhysics() {
+		let physics = this.physics;
+		if (!physics || !physics.world) {
+			return;
+		}
+		physics.world.subsystems = physics.world.subsystems.filter(s => s != physics.springBoneSystem);
+		physics.world.constraints = physics.world.constraints.filter(c => !physics.constraints.includes(c));
+		physics.world.bodies = physics.world.bodies.filter(b => !physics.bodies.includes(b));
+		physics.world = null;
 	}
 	resetPhysics() {
 		if (this.physics) {
 			this.physics.fixedBinds.forEach(([node, body]) => {
+				node.updateWorldMatrix(true);
 				body.position.copy(node.getWorldPosition(this._tmpV0));
 				body.quaternion.copy(node.parent.getWorldQuaternion(this._tmpQ0));
 			});
 			this.physics.binds.forEach(([node, body]) => {
+				node.updateWorldMatrix(true);
 				body.position.copy(node.getWorldPosition(this._tmpV0));
 				body.quaternion.copy(node.getWorldQuaternion(this._tmpQ0));
 				body.velocity.set(0, 0, 0);
@@ -194,17 +217,12 @@ class VRMAvatar {
 		}
 	}
 	_updatePhysics(timeDelta) {
-		if (this.physicsNeedReset) {
-			this.physicsNeedReset = false;
-			this.resetPhysics();
-			return;
-		}
 		this.physics.fixedBinds.forEach(([node, body]) => {
 			body.position.copy(node.getWorldPosition(this._tmpV0));
 			body.quaternion.copy(node.parent.getWorldQuaternion(this._tmpQ0));
 		});
-		if (this.physicsInternalWorld) {
-			this.physicsInternalWorld.step(1 / 60, timeDelta);
+		if (this.physics.internalWorld) {
+			this.physics.world.step(1 / 60, timeDelta);
 		}
 		this.physics.binds.forEach(([node, body]) => node.quaternion.copy(body.quaternion).premultiply(node.parent.getWorldQuaternion(this._tmpQ0).inverse()));
 		this.physics.binds.forEach(([_node, body, d]) => {
@@ -234,7 +252,7 @@ class VRMAvatar {
 			}
 			b.quaternion.slerp(rot, speedFactor);
 		}
-		if (this.enablePhysics && this.physics) {
+		if (this.physics && this.physics.world) {
 			this._updatePhysics(timeDelta);
 		}
 	}
@@ -392,23 +410,14 @@ class VRMAvatar {
 		this.morphAction = this.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
 	}
 	dispose() {
+		this.stopPhysics();
+		this.physics = null;
 		this.model.traverse(obj => {
 			obj.geometry?.dispose();
 			obj.material?.dispose();
 			obj.material?.map?.dispose();
 			obj.skeleton?.dispose();
 		});
-		if (this.physics) {
-			this.physics.world.subsystems = this.physics.world.subsystems.filter(
-				s => s != this.physics.springBoneSystem
-			);
-			this.physics.world.constraints = this.physics.world.constraints.filter(
-				c => !this.physics.constraints.includes(c)
-			);
-			this.physics.world.bodies = this.physics.world.bodies.filter(
-				c => !this.physics.bodies.includes(c)
-			);
-		}
 	}
 }
 
@@ -426,7 +435,11 @@ AFRAME.registerComponent('vrm', {
 		if (globalThis.CANNON && this.el.sceneEl.systems.physics && this.el.sceneEl.systems.physics.driver) {
 			// overrride physics
 			// TODO: use same version of cannon.js.
+			let org = this.el.sceneEl.systems.physics.driver.world;
 			this.world = this.el.sceneEl.systems.physics.driver.world = new CANNON.World();
+			this.world.bodies = org.bodies;
+			this.world.constraints = org.constraints;
+			this.world.gravity.copy(org.gravity);
 		}
 	},
 	update(oldData) {
@@ -436,17 +449,9 @@ AFRAME.registerComponent('vrm', {
 			this.remove();
 			if (data.src) {
 				new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(data.src, async (gltf) => {
-					this.avatar = await new VRMAvatar().init(gltf, el.sceneEl.object3D, this.world);
+					this.avatar = await new VRMAvatar().init(gltf, el.sceneEl.object3D);
 					el.setObject3D('avatar', this.avatar.model);
 					el.emit('model-loaded', { format: 'vrm', model: this.avatar.model, avatar: this.avatar }, false);
-					if (this.world) {
-						// update collision mask.
-						this.world.bodies.forEach(b => {
-							if (b.collisionFilterGroup == 1) {
-								b.collisionFilterMask |= 2;
-							}
-						});
-					}
 					this._updateAvatar();
 				}, undefined, (error) => {
 					el.emit('model-error', { format: 'vrm', src: data.src, cause: error }, false);
@@ -468,7 +473,6 @@ AFRAME.registerComponent('vrm', {
 		if (!this.avatar) {
 			return;
 		}
-		this.avatar.enablePhysics = this.data.enablePhysics;
 		this.avatar.setFirstPerson(this.data.firstPerson);
 		if (this.data.lookAt?.tagName == 'A-CAMERA') {
 			this.avatar.lookAtTarget = this.el.sceneEl.camera;
@@ -479,6 +483,21 @@ AFRAME.registerComponent('vrm', {
 			this.avatar.startBlink(this.data.blinkInterval);
 		} else {
 			this.avatar.stopBlink();
+		}
+		if (this.data.enablePhysics) {
+			if (this.avatar.physics && this.avatar.physics.world == null) {
+				this.avatar.startPhysics(this.world);
+				if (this.world) {
+					// HACK: update collision mask.
+					this.world.bodies.forEach(b => {
+						if (b.collisionFilterGroup == 1) {
+							b.collisionFilterMask |= this.avatar.collisionGroup;
+						}
+					});
+				}
+			}
+		} else {
+			this.avatar.stopPhysics(this.world);
 		}
 	}
 });
