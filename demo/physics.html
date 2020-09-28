@@ -18,12 +18,19 @@
     <a-sky></a-sky>
     <a-entity id="mouse-cursor" cursor="rayOrigin: mouse; fuse:false" raycaster="objects:.collidable"></a-entity>
 
-    <a-plane id='ground' wireframe='true' width='10' height='10' segments-height='10' segments-width='10' rotation='90 0 0'></a-plane>
+    <a-plane id='ground' wireframe='true' width='10' height='10' segments-height='10' segments-width='10' rotation='90 0 0'
+    static-body="shape:none" shape="shape:box;halfExtents:5 5 5;offset:0 0 5"></a-plane>
 
     <!-- VRM avatar -->
     <a-entity id="avatar" vrm="src:assets/AliciaSolid/AliciaSolid.vrm;lookAt:a-camera;enablePhysics:true" vrm-bvh="" rotation="0 180 0"></a-entity>
 
-    <a-box width="0.1" height="0.1" depth="0.1" position="0 0.05 0.5" color="red" xy-drag-control static-body></a-box>
+    <!-- boxes -->
+    <a-box width="0.1" height="0.1" depth="0.1" position="-0.5 0.5 1" color="red" xy-drag-control static-body></a-box>
+    <a-box width="0.1" height="0.1" depth="0.1" position="0.5 0.5 1" color="red" xy-drag-control static-body></a-box>
+    <a-box width="0.1" height="0.1" depth="0.1" position="0.5 0.5 -0.5" color="green" xy-drag-control dynamic-body="mass:1"></a-box>
+    <a-box width="0.1" height="0.1" depth="0.1" position="0.5 1 -0.5" color="green" xy-drag-control dynamic-body="mass:1"></a-box>
+    <a-box width="0.1" height="0.1" depth="0.1" position="-1 0.5 0" color="green" xy-drag-control dynamic-body="mass:1"></a-box>
+    <a-box width="0.1" height="0.1" depth="0.1" position="-1 1 0" color="green" xy-drag-control dynamic-body="mass:1"></a-box>
 
     <a-entity id="camera-rig" position-controls="axismove:x" camera-control="homePosition:0 0 3; vrHomePosition: 0 0 0.5">
 

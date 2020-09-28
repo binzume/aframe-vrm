@@ -59,7 +59,6 @@ AFRAME.registerComponent('camera-control', {
             distance = Math.max(0.1, distance + ev.deltaY * speedFactor);
             updateCamera();
         });
-
     },
     resetPosition() {
         this.el.sceneEl.querySelector('a-sky').object3D.visible = !this.el.sceneEl.is('ar-mode');
@@ -246,4 +245,24 @@ window.addEventListener('DOMContentLoaded', (ev) => {
         }
     });
 
+    // Physics: dragging dynamic-body.
+    let draggingEl = null;
+    let draggingObjectMass = 1;
+    for (let el of document.querySelectorAll('[dynamic-body]')) {
+        el.addEventListener('mousedown', ev => {
+            if (!draggingEl) {
+                // set mass = 0
+                draggingEl = el;
+                draggingObjectMass = el.getAttribute('dynamic-body').mass;
+                el.setAttribute('dynamic-body', 'mass', 0);
+            }
+        });
+    }
+    window.addEventListener('mouseup', ev => {
+        if (draggingEl) {
+            // restore mass
+            draggingEl.setAttribute('dynamic-body', 'mass', draggingObjectMass);
+            draggingEl = null;
+        }
+    });
 }, { once: true });
