@@ -78,7 +78,7 @@ Attributes:
 
 | name        | type     | default | desc |
 | ----------- | -------- | ------- | ---- |
-| src         | URL      | None    | BVH file url |
+| src         | string   | ''      | BVH file url |
 | convertBone | boolean  | true    | Convert bone name |
 
 srcを空にするとアイドルアニメーションが再生されます(テスト用)．
@@ -108,7 +108,7 @@ Methods:
 
 # TODO
 
-- https://github.com/pixiv/three-vrm を使う．
+- Use https://github.com/pixiv/three-vrm
 
 # License
 

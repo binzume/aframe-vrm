@@ -131,7 +131,9 @@ window.addEventListener('DOMContentLoaded', (ev) => {
     let models = [
         { name: 'AliciaSolid', src: 'assets/AliciaSolid/AliciaSolid.vrm' },
         { name: 'AliciaSolid_mmd', src: 'assets/AliciaSolid/AliciaSolid_mmd.vrm' },
-        { name: 'Zunko', src: 'assets/Zunko/zunko_vrm.vrm' }
+        { name: '千駄ヶ谷 渋', src: 'assets/VRoid/8801565727279527051.vrm' },
+        { name: '千駄ヶ谷 篠', src: 'assets/VRoid/4537789756845150029.vrm' },
+        { name: '東北ずん子', src: 'assets/Zunko/zunko_vrm.vrm' }
     ];
     let motions = [
         'assets/bvhfiles/la_bvh_sample01.bvh',
