@@ -25,10 +25,10 @@ class VRMAvatar {
 			'rightLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 0 * Math.PI / 180 }
 		};
 	}
-	async init(gltf, scene) {
-		let vrmExt = gltf.userData?.gltfExtensions?.VRM;
+	async init(gltf) {
 		this.model = gltf.scene;
 		this.mixer = new THREE.AnimationMixer(this.model);
+		let vrmExt = gltf.userData?.gltfExtensions?.VRM;
 		if (!vrmExt) {
 			return this;
 		}
@@ -39,17 +39,6 @@ class VRMAvatar {
 		Object.values(vrmExt.humanoid.humanBones).forEach((humanBone) => {
 			bones[humanBone.bone] = nodes[humanBone.node];
 		});
-		if (vrmExt.blendShapeMaster?.blendShapeGroups) {
-			this.blendShapes = vrmExt.blendShapeMaster.blendShapeGroups.reduce((blendShapes, bg) => {
-				let binds = bg.binds.flatMap(bind => {
-					let meshObj = meshes[bind.mesh];
-					return (meshObj.isSkinnedMesh ? [meshObj] : meshObj.children.filter(obj => obj.isSkinnedMesh))
-						.map(obj => ({ target: obj, index: bind.index, weight: bind.weight / 100 }));
-				});
-				blendShapes[(bg.presetName || bg.name).toUpperCase()] = { name: bg.name, binds: binds };
-				return blendShapes;
-			}, {});
-		}
 		if (vrmExt.firstPerson?.firstPersonBone) {
 			this.firstPersonBone = nodes[vrmExt.firstPerson.firstPersonBone];
 		}
@@ -57,18 +46,31 @@ class VRMAvatar {
 			this._annotatedMeshes =
 				vrmExt.firstPerson.meshAnnotations.map(ma => ({ flag: ma.firstPersonFlag, mesh: meshes[ma.mesh] }));
 		}
-		if (vrmExt.secondaryAnimation) {
-			this._initPhysics(vrmExt.secondaryAnimation.boneGroups, nodes, scene);
+		if (vrmExt.blendShapeMaster) {
+			this._initBlendShapes(vrmExt.blendShapeMaster, meshes);
 		}
-
+		if (vrmExt.secondaryAnimation) {
+			this._initPhysics(vrmExt.secondaryAnimation, nodes);
+		}
 		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
 		return this;
 	}
-	_initPhysics(boneGroups, nodes, scene) {
+	_initBlendShapes(blendShapeMaster, meshes) {
+		this.blendShapes = (blendShapeMaster.blendShapeGroups || []).reduce((blendShapes, bg) => {
+			let binds = bg.binds.flatMap(bind => {
+				let meshObj = meshes[bind.mesh];
+				return (meshObj.isSkinnedMesh ? [meshObj] : meshObj.children.filter(obj => obj.isSkinnedMesh))
+					.map(obj => ({ target: obj, index: bind.index, weight: bind.weight / 100 }));
+			});
+			blendShapes[(bg.presetName || bg.name).toUpperCase()] = { name: bg.name, binds: binds };
+			return blendShapes;
+		}, {});
+	}
+	_initPhysics(secondaryAnimation, nodes) {
 		if (!globalThis.CANNON) {
 			return; // need cannon.js
 		}
-		console.log('init physics', boneGroups);
+		console.log('init physics', secondaryAnimation);
 		let _q0 = new CANNON.Quaternion();
 		let _q1 = new CANNON.Quaternion();
 		let _v0 = new CANNON.Vec3();
@@ -107,13 +109,6 @@ class VRMAvatar {
 			}
 		};
 
-		let debug = false;
-		let geometry, material, bodyObj = null;
-		if (debug) {
-			geometry = new THREE.BoxGeometry(1, 1, 1);
-			material = new THREE.MeshBasicMaterial({ color: new THREE.Color("red") });
-		}
-
 		let binds = [];
 		let fixedBinds = [];
 		let bodies = [];
@@ -122,7 +117,7 @@ class VRMAvatar {
 			world: null, fixedBinds: fixedBinds, binds: binds,
 			bodies: bodies, constraints: constraints, springBoneSystem: springBoneSystem
 		};
-		for (let bg of boneGroups) {
+		for (let bg of secondaryAnimation.boneGroups) {
 			let gravity = new CANNON.Vec3().copy(bg.gravityDir || { x: 0, y: -1, z: 0 }).scale(bg.gravityPower || 0);
 			for (let b of bg.bones) {
 				nodes[b].updateWorldMatrix(true, true);
@@ -146,8 +141,8 @@ class VRMAvatar {
 
 					let body = new CANNON.Body({
 						mass: 0.5,
-						linearDamping: Math.max(bg.dragForce || 0, 0.01),
-						angularDamping: Math.max(bg.dragForce || 0, 0.01),
+						linearDamping: Math.max(bg.dragForce || 0, 0.0001),
+						angularDamping: Math.max(bg.dragForce || 0, 0.0001),
 						collisionFilterGroup: this.collisionGroup,
 						collisionFilterMask: ~this.collisionGroup // TODO
 					});
@@ -155,28 +150,21 @@ class VRMAvatar {
 					body.addShape(new CANNON.Sphere(bg.hitRadius || 0.05));
 					bodies.push(body);
 
-					if (debug && scene) {
-						bodyObj = new THREE.Mesh(geometry, material);
-						bodyObj.scale.set(bg.hitRadius, bg.hitRadius, bg.hitRadius);
-						scene.add(bodyObj);
-					}
-
 					let o = new CANNON.Vec3(0, 0, 0).copy(this._tmpV1.copy(wpos).sub(c));
 					let d = new CANNON.Vec3(0, 0, 0).copy(wpos.sub(parentBody.position));
 					let joint = new CANNON.PointToPointConstraint(body, o, parentBody, d);
 					constraints.push(joint);
 
-					binds.push([node, body, bodyObj]);
-					springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg, size: bg.hitRadius || 0.05 });
+					binds.push([node, body]);
+					springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg, size: body.boundingRadius });
 					node.children.forEach(n => n.isBone && add(body, n, depth + 1));
 				};
 				add(root, nodes[b], 0);
-
 				fixedBinds.push([nodes[b], root]);
 			}
 		}
 	}
-	startPhysics(world) {
+	startPhysics(world, debug) {
 		let physics = this.physics;
 		if (!physics) {
 			return;
@@ -189,6 +177,21 @@ class VRMAvatar {
 		physics.bodies.forEach(b => world.add(b));
 		physics.constraints.forEach(c => world.addConstraint(c));
 		this.resetPhysics();
+
+		if (debug) {
+			let geometry = new THREE.BoxGeometry(1, 1, 1);
+			let material = new THREE.MeshBasicMaterial({ color: new THREE.Color("red") });
+			let scene = this.model;
+			while (scene.parent) {
+				scene = scene.parent;
+			}
+			physics.binds.forEach(b => {
+				let bodyObj = new THREE.Mesh(geometry, material);
+				bodyObj.scale.set(b[1].boundingRadius, b[1].boundingRadius, b[1].boundingRadius);
+				scene.add(bodyObj);
+				b[2] = bodyObj;
+			});
+		}
 	}
 	stopPhysics() {
 		let physics = this.physics;
@@ -198,6 +201,11 @@ class VRMAvatar {
 		physics.world.subsystems = physics.world.subsystems.filter(s => s != physics.springBoneSystem);
 		physics.world.constraints = physics.world.constraints.filter(c => !physics.constraints.includes(c));
 		physics.world.bodies = physics.world.bodies.filter(b => !physics.bodies.includes(b));
+		physics.binds.forEach(b => {
+			if (b[2]) {
+				b[2].parent.remove(b[2]);
+			}
+		});
 		physics.world = null;
 	}
 	resetPhysics() {
@@ -224,8 +232,8 @@ class VRMAvatar {
 		if (this.physics.internalWorld) {
 			this.physics.world.step(1 / 60, timeDelta);
 		}
-		this.physics.binds.forEach(([node, body]) => node.quaternion.copy(body.quaternion).premultiply(node.parent.getWorldQuaternion(this._tmpQ0).inverse()));
-		this.physics.binds.forEach(([_node, body, d]) => {
+		this.physics.binds.forEach(([node, body, d]) => {
+			node.quaternion.copy(body.quaternion).premultiply(node.parent.getWorldQuaternion(this._tmpQ0).inverse());
 			if (d) {
 				d.position.copy(body.position).x += 1;
 				d.quaternion.copy(body.quaternion);
@@ -234,11 +242,8 @@ class VRMAvatar {
 	}
 	tick(timeDelta) {
 		this.mixer.update(timeDelta);
-		if (this.lookAtTarget) {
-			let b = this.firstPersonBone || this.bones['head'];
-			if (!b) {
-				return;
-			}
+		if (this.lookAtTarget && this.firstPersonBone) {
+			let b = this.firstPersonBone;
 			let targetDirection = b.worldToLocal(this.lookAtTarget.getWorldPosition(this._tmpV0)).normalize();
 			let rot = this._tmpQ0.setFromUnitVectors(this._zV, targetDirection);
 			let boneLimit = this.boneConstraints.head.limit;
@@ -449,7 +454,7 @@ AFRAME.registerComponent('vrm', {
 			this.remove();
 			if (data.src) {
 				new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(data.src, async (gltf) => {
-					this.avatar = await new VRMAvatar().init(gltf, el.sceneEl.object3D);
+					this.avatar = await new VRMAvatar().init(gltf);
 					el.setObject3D('avatar', this.avatar.model);
 					el.emit('model-loaded', { format: 'vrm', model: this.avatar.model, avatar: this.avatar }, false);
 					this._updateAvatar();
