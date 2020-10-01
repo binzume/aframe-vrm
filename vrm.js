@@ -166,7 +166,7 @@ class VRMAvatar {
 	}
 	startPhysics(world) {
 		let physics = this.physics;
-		if (!physics) {
+		if (!physics || physics.world) {
 			return;
 		}
 		physics.internalWorld = world == null;
@@ -189,20 +189,18 @@ class VRMAvatar {
 		physics.world = null;
 	}
 	resetPhysics() {
-		if (this.physics) {
-			this.physics.fixedBinds.forEach(([node, body]) => {
-				node.updateWorldMatrix(true);
-				body.position.copy(node.getWorldPosition(this._tmpV0));
-				body.quaternion.copy(node.parent.getWorldQuaternion(this._tmpQ0));
-			});
-			this.physics.binds.forEach(([node, body]) => {
-				node.updateWorldMatrix(true);
-				body.position.copy(node.getWorldPosition(this._tmpV0));
-				body.quaternion.copy(node.getWorldQuaternion(this._tmpQ0));
-				body.velocity.set(0, 0, 0);
-				body.angularVelocity.set(0, 0, 0);
-			});
-		}
+		this.physics.fixedBinds.forEach(([node, body]) => {
+			node.updateWorldMatrix(true);
+			body.position.copy(node.getWorldPosition(this._tmpV0));
+			body.quaternion.copy(node.parent.getWorldQuaternion(this._tmpQ0));
+		});
+		this.physics.binds.forEach(([node, body]) => {
+			node.updateWorldMatrix(true);
+			body.position.copy(node.getWorldPosition(this._tmpV0));
+			body.quaternion.copy(node.getWorldQuaternion(this._tmpQ0));
+			body.velocity.set(0, 0, 0);
+			body.angularVelocity.set(0, 0, 0);
+		});
 	}
 	_updatePhysics(timeDelta) {
 		this.physics.fixedBinds.forEach(([node, body]) => {
@@ -413,15 +411,6 @@ AFRAME.registerComponent('vrm', {
 	},
 	init() {
 		this.avatar = null;
-		if (globalThis.CANNON && this.el.sceneEl.systems.physics && this.el.sceneEl.systems.physics.driver) {
-			// overrride physics
-			// TODO: use same version of cannon.js.
-			let org = this.el.sceneEl.systems.physics.driver.world;
-			this.world = this.el.sceneEl.systems.physics.driver.world = new CANNON.World();
-			this.world.bodies = org.bodies;
-			this.world.constraints = org.constraints;
-			this.world.gravity.copy(org.gravity);
-		}
 	},
 	update(oldData) {
 		let el = this.el;
@@ -454,31 +443,34 @@ AFRAME.registerComponent('vrm', {
 		if (!this.avatar) {
 			return;
 		}
-		this.avatar.setFirstPerson(this.data.firstPerson);
-		if (this.data.lookAt?.tagName == 'A-CAMERA') {
+		let data = this.data;
+		this.avatar.setFirstPerson(data.firstPerson);
+		if (data.lookAt?.tagName == 'A-CAMERA') {
 			this.avatar.lookAtTarget = this.el.sceneEl.camera;
 		} else {
-			this.avatar.lookAtTarget = this.data.lookAt?.object3D;
+			this.avatar.lookAtTarget = data.lookAt?.object3D;
 		}
-		if (this.data.blink) {
-			this.avatar.startBlink(this.data.blinkInterval);
+		if (data.blink) {
+			this.avatar.startBlink(data.blinkInterval);
 		} else {
 			this.avatar.stopBlink();
 		}
-		if (this.data.enablePhysics) {
+		if (data.enablePhysics) {
 			if (this.avatar.physics && this.avatar.physics.world == null) {
-				this.avatar.startPhysics(this.world);
-				if (this.world) {
+				let world = null;
+				if (this.el.sceneEl.systems.physics && this.el.sceneEl.systems.physics.driver) {
+					world = this.el.sceneEl.systems.physics.driver.world;
 					// HACK: update collision mask.
-					this.world.bodies.forEach(b => {
+					world.bodies.forEach(b => {
 						if (b.collisionFilterGroup == 1 && b.collisionFilterMask == 1) {
 							b.collisionFilterMask = -1;
 						}
 					});
 				}
+				this.avatar.startPhysics(world);
 			}
 		} else {
-			this.avatar.stopPhysics(this.world);
+			this.avatar.stopPhysics();
 		}
 	}
 });
@@ -635,11 +627,11 @@ AFRAME.registerComponent('vrm-skeleton', {
 		if (!avatar.physics || !avatar.physics.world) {
 			return;
 		}
-		let geometry = new THREE.SphereGeometry(1, 3, 3);
+		let geometry = new THREE.SphereGeometry(1, 4, 3);
 		let material = new THREE.MeshBasicMaterial({ color: new THREE.Color("red"), wireframe: true });
 		avatar.physics.bodies.forEach(body => {
 			let obj = new THREE.Mesh(geometry, material);
-			obj.scale.set(body.boundingRadius, body.boundingRadius, body.boundingRadius);
+			obj.scale.multiplyScalar(body.boundingRadius);
 			this.sceneObj.add(obj);
 			this.physicsBodies.push([body, obj]);
 		});
