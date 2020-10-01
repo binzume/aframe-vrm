@@ -164,7 +164,7 @@ class VRMAvatar {
 			}
 		}
 	}
-	startPhysics(world, debug) {
+	startPhysics(world) {
 		let physics = this.physics;
 		if (!physics) {
 			return;
@@ -177,21 +177,6 @@ class VRMAvatar {
 		physics.bodies.forEach(b => world.add(b));
 		physics.constraints.forEach(c => world.addConstraint(c));
 		this.resetPhysics();
-
-		if (debug) {
-			let geometry = new THREE.BoxGeometry(1, 1, 1);
-			let material = new THREE.MeshBasicMaterial({ color: new THREE.Color("red") });
-			let scene = this.model;
-			while (scene.parent) {
-				scene = scene.parent;
-			}
-			physics.binds.forEach(b => {
-				let bodyObj = new THREE.Mesh(geometry, material);
-				bodyObj.scale.set(b[1].boundingRadius, b[1].boundingRadius, b[1].boundingRadius);
-				scene.add(bodyObj);
-				b[2] = bodyObj;
-			});
-		}
 	}
 	stopPhysics() {
 		let physics = this.physics;
@@ -201,11 +186,6 @@ class VRMAvatar {
 		physics.world.subsystems = physics.world.subsystems.filter(s => s != physics.springBoneSystem);
 		physics.world.constraints = physics.world.constraints.filter(c => !physics.constraints.includes(c));
 		physics.world.bodies = physics.world.bodies.filter(b => !physics.bodies.includes(b));
-		physics.binds.forEach(b => {
-			if (b[2]) {
-				b[2].parent.remove(b[2]);
-			}
-		});
 		physics.world = null;
 	}
 	resetPhysics() {
@@ -232,12 +212,8 @@ class VRMAvatar {
 		if (this.physics.internalWorld) {
 			this.physics.world.step(1 / 60, timeDelta);
 		}
-		this.physics.binds.forEach(([node, body, d]) => {
+		this.physics.binds.forEach(([node, body]) => {
 			node.quaternion.copy(body.quaternion).premultiply(node.parent.getWorldQuaternion(this._tmpQ0).inverse());
-			if (d) {
-				d.position.copy(body.position).x += 1;
-				d.quaternion.copy(body.quaternion);
-			}
 		});
 	}
 	tick(timeDelta) {
@@ -456,8 +432,8 @@ AFRAME.registerComponent('vrm', {
 				new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(data.src, async (gltf) => {
 					this.avatar = await new VRMAvatar().init(gltf);
 					el.setObject3D('avatar', this.avatar.model);
-					el.emit('model-loaded', { format: 'vrm', model: this.avatar.model, avatar: this.avatar }, false);
 					this._updateAvatar();
+					el.emit('model-loaded', { format: 'vrm', model: this.avatar.model, avatar: this.avatar }, false);
 				}, undefined, (error) => {
 					el.emit('model-error', { format: 'vrm', src: data.src, cause: error }, false);
 				});
@@ -635,8 +611,11 @@ AFRAME.registerComponent('vrm-bvh', {
 
 AFRAME.registerComponent('vrm-skeleton', {
 	schema: {
+		physicsOffset: { type: 'vec3', default: { x: 1, y: 0, z: 0 } },
 	},
 	init() {
+		this.physicsBodies = [];
+		this.sceneObj = this.el.sceneEl.object3D;
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
 			this._onAvatarUpdated(this.el.components.vrm.avatar);
 		}
@@ -644,18 +623,42 @@ AFRAME.registerComponent('vrm-skeleton', {
 		this.el.addEventListener('model-loaded', this.onVrmLoaded);
 	},
 	_onAvatarUpdated(avatar) {
-		let scene = this.el.sceneEl.object3D;
 		if (this.helper) {
-			scene.remove(this.helper);
+			this.sceneObj.remove(this.helper);
 		}
 		this.helper = new THREE.SkeletonHelper(avatar.model);
-		scene.add(this.helper);
+		this.sceneObj.add(this.helper);
+		this._updatePhysicsBody(avatar);
+	},
+	_updatePhysicsBody(avatar) {
+		this._clearPhysicsBody();
+		if (!avatar.physics || !avatar.physics.world) {
+			return;
+		}
+		let geometry = new THREE.SphereGeometry(1, 3, 3);
+		let material = new THREE.MeshBasicMaterial({ color: new THREE.Color("red"), wireframe: true });
+		avatar.physics.bodies.forEach(body => {
+			let obj = new THREE.Mesh(geometry, material);
+			obj.scale.set(body.boundingRadius, body.boundingRadius, body.boundingRadius);
+			this.sceneObj.add(obj);
+			this.physicsBodies.push([body, obj]);
+		});
+	},
+	_clearPhysicsBody() {
+		this.physicsBodies.forEach(([body, obj]) => obj.parent.remove(obj));
+		this.physicsBodies = [];
+	},
+	tick() {
+		this.physicsBodies.forEach(([body, obj]) => {
+			obj.position.copy(body.position).add(this.data.physicsOffset);
+			obj.quaternion.copy(body.quaternion);
+		});
 	},
 	remove() {
 		this.el.removeEventListener('model-loaded', this.onVrmLoaded);
+		this._clearPhysicsBody();
 		if (this.helper) {
-			let scene = this.el.sceneEl.object3D;
-			scene.remove(this.helper);
+			this.sceneObj.remove(this.helper);
 		}
 	}
 });
