@@ -1,8 +1,12 @@
-# [WIP] VRM Components for WebVR
+# VRM Components for A-Frame
 
 [A-Frame](https://aframe.io/) で [VRM](https://vrm.dev/) のモデルを動かすコンポーネントです.
 
-アニメーションとかブレンドシェイプ(Morph)が簡単に使えます．
+## Features
+
+- Animation
+- BlendShape (Morph)
+- Physics (using CANNON.js)
 
 ## Demo
 
