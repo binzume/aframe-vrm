@@ -28,7 +28,7 @@ class VRMAvatar {
 	async init(gltf) {
 		this.model = gltf.scene;
 		this.mixer = new THREE.AnimationMixer(this.model);
-		let vrmExt = gltf.userData?.gltfExtensions?.VRM;
+		let vrmExt = (gltf.userData.gltfExtensions || {}).VRM;
 		if (!vrmExt) {
 			return this;
 		}
@@ -39,10 +39,10 @@ class VRMAvatar {
 		Object.values(vrmExt.humanoid.humanBones).forEach((humanBone) => {
 			bones[humanBone.bone] = nodes[humanBone.node];
 		});
-		if (vrmExt.firstPerson?.firstPersonBone) {
+		if (vrmExt.firstPerson && vrmExt.firstPerson.firstPersonBone) {
 			this.firstPersonBone = nodes[vrmExt.firstPerson.firstPersonBone];
 		}
-		if (vrmExt.firstPerson?.meshAnnotations) {
+		if (vrmExt.firstPerson && vrmExt.firstPerson.meshAnnotations) {
 			this._annotatedMeshes =
 				vrmExt.firstPerson.meshAnnotations.map(ma => ({ flag: ma.firstPersonFlag, mesh: meshes[ma.mesh] }));
 		}
@@ -362,7 +362,7 @@ class VRMAvatar {
 					return data;
 				}
 				let weights = new Array(times.length).fill(value);
-				if (this.animatedMorph?.name == name) {
+				if (this.animatedMorph && this.animatedMorph.name == name) {
 					weights = this.animatedMorph.values.map(w => Math.max(w, value));
 				}
 				blend.binds.forEach(bind => {
@@ -392,10 +392,10 @@ class VRMAvatar {
 		this.stopPhysics();
 		this.physics = null;
 		this.model.traverse(obj => {
-			obj.geometry?.dispose();
-			obj.material?.dispose();
-			obj.material?.map?.dispose();
-			obj.skeleton?.dispose();
+			obj.geometry && obj.geometry.dispose();
+			obj.material && obj.material.dispose();
+			obj.material && obj.material.map && obj.material.map.dispose();
+			obj.skeleton && obj.skeleton.dispose();
 		});
 	}
 }
@@ -422,6 +422,7 @@ AFRAME.registerComponent('vrm', {
 					this.avatar = await new VRMAvatar().init(gltf);
 					el.setObject3D('avatar', this.avatar.model);
 					this._updateAvatar();
+					this.play();
 					el.emit('model-loaded', { format: 'vrm', model: this.avatar.model, avatar: this.avatar }, false);
 				}, undefined, (error) => {
 					el.emit('model-error', { format: 'vrm', src: data.src, cause: error }, false);
@@ -431,7 +432,11 @@ AFRAME.registerComponent('vrm', {
 		this._updateAvatar();
 	},
 	tick(time, timeDelta) {
-		this.avatar?.tick(timeDelta / 1000);
+		if (!this.avatar) {
+			this.pause();
+			return;
+		}
+		this.avatar.tick(timeDelta / 1000);
 	},
 	remove() {
 		if (this.avatar) {
@@ -445,10 +450,14 @@ AFRAME.registerComponent('vrm', {
 		}
 		let data = this.data;
 		this.avatar.setFirstPerson(data.firstPerson);
-		if (data.lookAt?.tagName == 'A-CAMERA') {
-			this.avatar.lookAtTarget = this.el.sceneEl.camera;
+		if (data.lookAt) {
+			if (data.lookAt.tagName == 'A-CAMERA') {
+				this.avatar.lookAtTarget = this.el.sceneEl.camera;
+			} else {
+				this.avatar.lookAtTarget = data.lookAt.object3D;
+			}
 		} else {
-			this.avatar.lookAtTarget = data.lookAt?.object3D;
+			this.avatar.lookAtTarget = null;
 		}
 		if (data.blink) {
 			this.avatar.startBlink(data.blinkInterval);
@@ -717,7 +726,7 @@ AFRAME.registerComponent('vrm-poser', {
 				this.el.emit('vrm-poser-select', { name: name, node: bone });
 			});
 			let parentBone = bone.parent;
-			while (!boneNameByUUID[parentBone.uuid] && parentBone.parent?.isBone) {
+			while (!boneNameByUUID[parentBone.uuid] && parentBone.parent && parentBone.parent.isBone) {
 				parentBone = parentBone.parent;
 			}
 			targetEl.addEventListener('xy-drag', ev => {
@@ -781,8 +790,10 @@ AFRAME.registerComponent('vrm-poser', {
 		this.binds.forEach(([b, t]) => {
 			this.el.removeChild(t.el);
 			let obj = t.el.getObject3D('handle');
-			obj?.material?.dispose();
-			obj?.geometry?.dispose();
+			if (obj) {
+				obj.material.dispose();
+				obj.geometry.dispose();
+			}
 			t.el.destroy();
 		});
 		this.binds = [];
@@ -893,10 +904,14 @@ AFRAME.registerComponent('vrm-mimic', {
 		this.el.addEventListener('model-loaded', this.onVrmLoaded);
 	},
 	update() {
-		if (this.data.headTarget?.tagName == 'A-CAMERA') {
-			this.headTarget = this.el.sceneEl.camera;
+		if (this.data.headTarget) {
+			if (this.data.headTarget.tagName == 'A-CAMERA') {
+				this.headTarget = this.el.sceneEl.camera;
+			} else {
+				this.headTarget = this.data.headTarget.object3D;
+			}
 		} else {
-			this.headTarget = this.data.headTarget?.object3D;
+			this.headTarget = null;
 		}
 
 		this.rightHandOffset = new THREE.Matrix4().compose(
