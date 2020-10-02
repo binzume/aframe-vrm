@@ -1,0 +1,27 @@
+{
+  "name": "aframe-vrm",
+  "version": "0.0.1",
+  "description": "VRM components for A-Frame",
+  "directories": {
+    "example": "demo"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dist-concat": "node_modules/.bin/uglifyjs -b -o dist/aframe-vrm.js -- *.js",
+    "dist-min": "node_modules/.bin/uglifyjs --compress pure_getters=true --mangle --mangle-props regex=/^_/ --source-map -o dist/aframe-vrm.min.js -- *.js",
+    "dist": "npm run dist-min && ls -la dist/*.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/binzume/aframe-vrm.git"
+  },
+  "author": "binzume",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/binzume/aframe-vrm/issues"
+  },
+  "homepage": "https://github.com/binzume/aframe-vrm#readme",
+  "devDependencies": {
+    "uglify-es": "^3.3.9"
+  }
+}
