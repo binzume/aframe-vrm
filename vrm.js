@@ -98,10 +98,11 @@ class VRMAvatar {
 					let stiffness = b.boneGroup.stiffiness; // stiff'i'ness
 					let approxInertia = b.size * b.size * m * 1600;
 					let rot = body.quaternion.mult(parent.quaternion.inverse(_q0), _q1);
-					let [axis, rad] = rot.toAxisAngle(_v0);
-					let tf = rad * stiffness;
-					if (tf > rad / dt / dt * 0.00025) {
-						tf = rad / dt / dt * 0.00025; // TODO
+					let [axis, angle] = rot.toAxisAngle(_v0);
+					angle = angle - Math.PI * 2 * Math.floor((angle + Math.PI) / (Math.PI * 2));
+					let tf = angle * stiffness;
+					if (Math.abs(tf) > Math.abs(angle / dt / dt * 0.00025)) {
+						tf = angle / dt / dt * 0.00025; // TODO
 					}
 					let af = axis.scale(-tf * approxInertia, axis);
 					body.torque.vadd(af, body.torque);
