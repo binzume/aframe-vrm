@@ -34,6 +34,8 @@
 </html>
 ```
 
+npm: [@binzume/aframe-vrm](https://www.npmjs.com/package/@binzume/aframe-vrm)
+
 ## Components
 
 - vrm: Load vrm model
@@ -85,7 +87,7 @@ Attributes:
 | src         | string   | ''      | BVH file url |
 | convertBone | boolean  | true    | Convert bone name |
 
-srcを空にするとアイドルアニメーションが再生されます(テスト用)．
+srcを空にすると待機アニメーションが再生されます(テスト用)．
 
 ### VRMAvatar
 
