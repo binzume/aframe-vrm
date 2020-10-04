@@ -225,6 +225,43 @@ AFRAME.registerComponent('hand-controller', {
     }
 });
 
+
+AFRAME.registerComponent('draggable-body', {
+    dependencies: ['xy-drag-control'],
+    init() {
+        let el = this.el;
+        let dragging = false;
+        el.addEventListener('mousedown', ev => {
+            if (dragging) {
+                return;
+            }
+            let velocity = new THREE.Vector3(0, 0, 0);
+            let prevPos = el.object3D.position.clone();
+            let prevTime = el.sceneEl.time;
+            let timer = setInterval(() => {
+                let dt = el.sceneEl.time - prevTime;
+                if (dt > 0) {
+                    velocity.copy(el.object3D.position).sub(prevPos).multiplyScalar(1000 / dt);
+                }
+                prevPos.copy(el.object3D.position);
+                prevTime = el.sceneEl.time;
+            }, 50);
+            // set mass = 0
+            let draggingObjectMass = el.body.mass;
+            dragging = true;
+            el.body.mass = 0;
+            el.addEventListener('mouseup', ev => {
+                dragging = false;
+                clearInterval(timer);
+                // restore mass
+                el.body.mass = draggingObjectMass;
+                el.body.velocity.copy(velocity);
+            }, { once: true });
+        });
+    }
+});
+
+
 window.addEventListener('DOMContentLoaded', (ev) => {
 
     let models = [
@@ -324,6 +361,7 @@ window.addEventListener('DOMContentLoaded', (ev) => {
 
     document.getElementById('stop-animation-button').addEventListener('click', (ev) => {
         vrmEl.removeAttribute('vrm-bvh');
+        vrmEl.components.vrm.avatar.restPose();
     });
 
     window.addEventListener('dragover', (ev) => {
@@ -345,36 +383,4 @@ window.addEventListener('DOMContentLoaded', (ev) => {
             }
         }
     });
-
-    // Physics: dragging dynamic-body.
-    for (let el of document.querySelectorAll('[dynamic-body]')) {
-        let dragging = false;
-        el.addEventListener('mousedown', ev => {
-            if (dragging) {
-                return;
-            }
-            dragging = true;
-            let v = new THREE.Vector3(0, 0, 0);
-            let prevPos = el.object3D.position.clone();
-            let prevTime = el.sceneEl.time;
-            let timer = setInterval(() => {
-                let dt = el.sceneEl.time - prevTime;
-                if (dt > 0) {
-                    v.copy(el.object3D.position).sub(prevPos).multiplyScalar(1000 / dt);
-                }
-                prevPos.copy(el.object3D.position);
-                prevTime = el.sceneEl.time;
-            }, 50);
-            // set mass = 0
-            let draggingObjectMass = el.getAttribute('dynamic-body').mass;
-            el.setAttribute('dynamic-body', 'mass', 0);
-            el.addEventListener('mouseup', ev => {
-                dragging = false;
-                clearInterval(timer);
-                // restore mass
-                el.setAttribute('dynamic-body', 'mass', draggingObjectMass);
-                el.body.velocity.copy(v);
-            }, { once: true });
-        });
-    }
 }, { once: true });

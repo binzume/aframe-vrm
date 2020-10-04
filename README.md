@@ -56,6 +56,10 @@ Attributes:
 | lookAt        | selector | None    | look at target element |
 | firstPerson   | boolean  | false   | Hide head meshes |
 
+Properties:
+
+avatar : VRMAvatar
+
 Events:
 
 | name         | event.detail | desc |
@@ -89,16 +93,18 @@ Attributes:
 
 srcを空にすると待機アニメーションが再生されます(テスト用)．
 
-### VRMAvatar
+### VRMAvatar API
 
 See: [vrm.js](vrm.js)
 
 Property:
 
 - VRMAvatar.model : THREE.Object3D
-- VRMAvatar.mixer : AnimationMixer
+- VRMAvatar.mixer : THREE.AnimationMixer
+- VRMAvatar.lookAtTarget : THREE.Object3D
 - VRMAvatar.bones : VRM bones
 - VRMAvatar.blendShapes : blend shapes
+- VRMAvatar.meta : VRM meta data
 
 Methods:
 
@@ -106,11 +112,15 @@ Methods:
 - VRMAvatar.setBlendShapeWeight(name, value) : Set blend shape weight for name.
 - VRMAvatar.getBlendShapeWeight(name) : Returns blend shape values.
 - VRMAvatar.resetBlendShape() : Reset all blend shapes.
+- VRMAvatar.resetPose() : T-Pose
 - VRMAvatar.startBlink(intervalSec)
 - VRMAvatar.stopBlink()
 - VRMAvatar.setFirstPerson(firstPerson)
 - VRMAvatar.tick(timeDelta)
-- VRMAvatar.destroy()
+- VRMAvatar.dispose() : Dispose VRM avatar.
+
+- VRMAvatar.physics.attach(world : CANNON.World) : Start physics.
+- VRMAvatar.physics.detach() : Stop physics.
 
 # TODO
 

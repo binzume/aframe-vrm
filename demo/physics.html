@@ -17,21 +17,22 @@
     <a-sky></a-sky>
     <a-entity id="mouse-cursor" cursor="rayOrigin: mouse; fuse:false" raycaster="objects:.collidable"></a-entity>
 
-    <a-plane id='ground' wireframe='true' width='10' height='10' segments-height='10' segments-width='10' rotation='90 0 0'
-    static-body="shape:none" shape="shape:box;halfExtents:5 5 5;offset:0 0 5"></a-plane>
-
     <!-- VRM avatar -->
     <a-entity id="avatar" vrm="src:assets/AliciaSolid/AliciaSolid.vrm;lookAt:a-camera;enablePhysics:true" vrm-bvh="" rotation="0 180 0"></a-entity>
 
-    <!-- boxes -->
-    <a-box width="0.1" height="0.1" depth="0.1" position="-0.5 0.3 1" color="red" xy-drag-control static-body></a-box>
-    <a-box width="0.1" height="0.1" depth="0.1" position="0.5 0.3 1" color="red" xy-drag-control static-body></a-box>
-    <a-box width="0.1" height="0.1" depth="0.1" position="0.5 0.5 -0.5" color="green" xy-drag-control dynamic-body="mass:1"></a-box>
-    <a-box width="0.1" height="0.1" depth="0.1" position="0.5 1 -0.5" color="green" xy-drag-control dynamic-body="mass:1"></a-box>
-    <a-box width="0.1" height="0.1" depth="0.1" position="-1 0.5 0" color="green" xy-drag-control dynamic-body="mass:1"></a-box>
-    <a-box width="0.1" height="0.1" depth="0.1" position="-1 1 0" color="green" xy-drag-control dynamic-body="mass:1"></a-box>
-    <a-sphere radius="0.1" position="-1 0.2 0" color="green" xy-drag-control dynamic-body="mass:1"></a-sphere>
-    <a-box width="30" height="30" depth="30" position="0 20 80" rotation="0 20 30" color="gray" static-body></a-box>
+    <a-entity id="env">
+      <a-plane id='ground' wireframe='true' width='10' height='10' segments-height='10' segments-width='10' rotation='90 0 0'
+      static-body="shape:none" shape="shape:box;halfExtents:5 5 5;offset:0 0 5"></a-plane>
+      <!-- boxes -->
+      <a-box width="0.1" height="0.1" depth="0.1" position="-0.5 0.3 1" color="red" draggable-body static-body></a-box>
+      <a-box width="0.1" height="0.1" depth="0.1" position="0.5 0.3 1" color="red" draggable-body static-body></a-box>
+      <a-box width="0.1" height="0.1" depth="0.1" position="0.5 0.5 -0.5" color="green" draggable-body dynamic-body="mass:1"></a-box>
+      <a-box width="0.1" height="0.1" depth="0.1" position="0.5 1 -0.5" color="green" draggable-body dynamic-body="mass:1"></a-box>
+      <a-box width="0.1" height="0.1" depth="0.1" position="-1 0.5 0" color="green" draggable-body dynamic-body="mass:1"></a-box>
+      <a-box width="0.1" height="0.1" depth="0.1" position="-1 1 0" color="green" draggable-body dynamic-body="mass:1"></a-box>
+      <a-sphere radius="0.1" position="-1 0.2 0" color="green" draggable-body dynamic-body="mass:1"></a-sphere>
+      <a-box width="30" height="30" depth="30" position="0 20 60" rotation="10 20 30" color="gray" static-body></a-box>
+    </a-entity>
 
     <a-entity id="camera-rig" position-controls="axismove:x" camera-control="homePosition:0 0 3; vrHomePosition: 0 0 0.5">
 
@@ -73,7 +74,7 @@
         </a-xycontainer>
         <a-xycontainer height="0.6" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
           <a-xyselect id="animation-select" label="Motion" width="0.5" height="0.4"></a-xyselect>
-          <a-xybutton id="stop-animation-button" label="stop" width="1"></a-xybutton>
+          <a-xybutton id="stop-animation-button" label="T-Pose" width="1"></a-xybutton>
         </a-xycontainer>
         <a-xyscroll width=3 height=4 scrollbar=false>
           <a-entity id="model-list" xylist="itemHeight:0.5" xyrect=""></a-entity>
