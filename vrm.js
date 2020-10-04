@@ -264,18 +264,34 @@ class VRMPhysicsCannonJS {
 		this._init(secondaryAnimation, nodes);
 	}
 	_init(secondaryAnimation, nodes) {
+		let allColliderGroupsMask = 0;
+		let colliderMarginFactor = 0.9; // TODO: Remove this.
+		(secondaryAnimation.colliderGroups || []).forEach((cc, i) => {
+			let node = nodes[cc.node];
+			for (let collider of cc.colliders) {
+				let body = new CANNON.Body({ mass: 0, collisionFilterGroup: 1 << (this.collisionGroup + i + 1), collisionFilterMask: -1 });
+				body.addShape(new CANNON.Sphere(collider.radius * colliderMarginFactor), collider.offset);
+				this.bodies.push(body);
+				this.fixedBinds.push([node, body]);
+				allColliderGroupsMask |= body.collisionFilterGroup;
+			}
+		});
 		for (let bg of secondaryAnimation.boneGroups) {
 			let gravity = new CANNON.Vec3().copy(bg.gravityDir || { x: 0, y: -1, z: 0 }).scale(bg.gravityPower || 0);
+			let radius = bg.hitRadius || 0.05;
+			let collisionFilterMask = ~(this.collisionGroup | allColliderGroupsMask);
+			for (let g of bg.colliderGroups || []) {
+				collisionFilterMask |= 1 << (this.collisionGroup + g + 1);
+			}
 			for (let b of bg.bones) {
-				nodes[b].updateWorldMatrix(true, true);
 				let root = new CANNON.Body({ mass: 0, collisionFilterGroup: 0, collisionFilterMask: 0 });
-				root.position.copy(nodes[b].getWorldPosition(this._tmpV0));
-				root.quaternion.copy(nodes[b].parent.getWorldQuaternion(this._tmpQ0));
+				root.position.copy(nodes[b].parent.getWorldPosition(this._tmpV0));
 				this.bodies.push(root);
-				let add = (parentBody, node, depth) => {
-					let n = node.children.length + 1;
+				this.fixedBinds.push([nodes[b].parent, root]);
+				let add = (parentBody, node) => {
 					let c = node.getWorldPosition(this._tmpV0);
 					let wpos = c.clone(); // TODO
+					let n = node.children.length + 1;
 					if (node.children.length > 0) {
 						node.children.forEach(n => {
 							c.add(n.getWorldPosition(this._tmpV1));
@@ -291,10 +307,10 @@ class VRMPhysicsCannonJS {
 						linearDamping: Math.max(bg.dragForce || 0, 0.0001),
 						angularDamping: Math.max(bg.dragForce || 0, 0.0001),
 						collisionFilterGroup: this.collisionGroup,
-						collisionFilterMask: ~this.collisionGroup // TODO
+						collisionFilterMask: collisionFilterMask,
+						position: c,
 					});
-					body.position.copy(c);
-					body.addShape(new CANNON.Sphere(bg.hitRadius || 0.05));
+					body.addShape(new CANNON.Sphere(radius));
 					this.bodies.push(body);
 
 					let o = new CANNON.Vec3(0, 0, 0).copy(this._tmpV1.copy(wpos).sub(c));
@@ -303,11 +319,10 @@ class VRMPhysicsCannonJS {
 					this.constraints.push(joint);
 
 					this.binds.push([node, body]);
-					this.springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg, size: body.boundingRadius });
-					node.children.forEach(n => n.isBone && add(body, n, depth + 1));
+					this.springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg, size: radius });
+					node.children.forEach(n => n.isBone && add(body, n));
 				};
 				add(root, nodes[b], 0);
-				this.fixedBinds.push([nodes[b], root]);
 			}
 		}
 	}
@@ -385,7 +400,7 @@ class VRMPhysicsCannonJS {
 	update(timeDelta) {
 		this.fixedBinds.forEach(([node, body]) => {
 			body.position.copy(node.getWorldPosition(this._tmpV0));
-			body.quaternion.copy(node.parent.getWorldQuaternion(this._tmpQ0));
+			body.quaternion.copy(node.getWorldQuaternion(this._tmpQ0));
 		});
 		if (this.internalWorld) {
 			this.world.step(1 / 60, timeDelta);
@@ -639,8 +654,14 @@ AFRAME.registerComponent('vrm-skeleton', {
 		let geometry = new THREE.SphereGeometry(1, 4, 3);
 		let material = new THREE.MeshBasicMaterial({ color: new THREE.Color("red"), wireframe: true, depthTest: false });
 		avatar.physics.bodies.forEach(body => {
-			let obj = new THREE.Mesh(geometry, material);
-			obj.scale.multiplyScalar(body.boundingRadius);
+			let obj = new THREE.Group();
+			body.shapes.forEach((shape, i) => {
+				let sphere = new THREE.Mesh(geometry, material);
+				sphere.position.copy(body.shapeOffsets[i]);
+				sphere.scale.multiplyScalar(shape.boundingSphereRadius || 0.01);
+				obj.add(sphere);
+
+			});
 			this.sceneObj.add(obj);
 			this.physicsBodies.push([body, obj]);
 		});
