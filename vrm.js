@@ -2,18 +2,17 @@
 
 class VRMAvatar {
 	constructor() {
-		this.model = null;
-		this.mixer = null;
+		this.model = null; // THREE.Object3D
+		this.mixer = null; // THREE.AnimationMixer
 		this.bones = {}; // : { boneName : Object3D }
 		this.blendShapes = {}; // : { key : { name:string, binds:[] } }
-		this.physics = null;
-		this.collisionGroup = 2;
+		this.physics = null; // VRMPhysicsCannonJS
+		this.meta = {};
 		this._currentShape = {};
 		this._identQ = new THREE.Quaternion();
 		this._zV = new THREE.Vector3(0, 0, -1);
 		this._tmpQ0 = new THREE.Quaternion();
 		this._tmpV0 = new THREE.Vector3();
-		this._tmpV1 = new THREE.Vector3();
 		this._annotatedMeshes = [];
 		// TODO: configurable constraints
 		this.boneConstraints = {
@@ -36,6 +35,7 @@ class VRMAvatar {
 		let nodes = await gltf.parser.getDependencies('node');
 		let meshes = await gltf.parser.getDependencies('mesh');
 
+		this.meta = vrmExt.meta;
 		Object.values(vrmExt.humanoid.humanBones).forEach((humanBone) => {
 			bones[humanBone.bone] = nodes[humanBone.node];
 		});
@@ -49,8 +49,9 @@ class VRMAvatar {
 		if (vrmExt.blendShapeMaster) {
 			this._initBlendShapes(vrmExt.blendShapeMaster, meshes);
 		}
-		if (vrmExt.secondaryAnimation) {
-			this._initPhysics(vrmExt.secondaryAnimation, nodes);
+		if (vrmExt.secondaryAnimation && globalThis.CANNON) {
+			console.log('init physics', vrmExt.secondaryAnimation);
+			this.physics = new VRMPhysicsCannonJS(vrmExt.secondaryAnimation, nodes);
 		}
 		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
 		return this;
@@ -65,155 +66,6 @@ class VRMAvatar {
 			blendShapes[(bg.presetName || bg.name).toUpperCase()] = { name: bg.name, binds: binds };
 			return blendShapes;
 		}, {});
-	}
-	_initPhysics(secondaryAnimation, nodes) {
-		if (!globalThis.CANNON) {
-			return; // need cannon.js
-		}
-		console.log('init physics', secondaryAnimation);
-		let _q0 = new CANNON.Quaternion();
-		let _q1 = new CANNON.Quaternion();
-		let _v0 = new CANNON.Vec3();
-		let springBoneSystem = {
-			world: null,
-			objects: [], // : [{body, force, parentBody, boneGroup}]
-			update() {
-				let g = this.world.gravity, dt = this.world.dt;
-				let avlimit = 0.1;
-				for (let b of this.objects) {
-					let body = b.body, parent = b.parentBody;
-					// Cancel world.gravity and apply boneGroup.gravity.
-					let f = body.force, m = body.mass, g2 = b.force;
-					f.x += m * (-g.x + g2.x);
-					f.y += m * (-g.y + g2.y);
-					f.z += m * (-g.z + g2.z);
-
-					// angularVelocity limitation
-					let av = body.angularVelocity.length();
-					if (av > avlimit) {
-						body.angularVelocity.scale(avlimit / av, body.angularVelocity);
-					}
-
-					// apply spring(?) force.
-					let stiffness = b.boneGroup.stiffiness; // stiff'i'ness
-					let approxInertia = b.size * b.size * m * 1600;
-					let rot = body.quaternion.mult(parent.quaternion.inverse(_q0), _q1);
-					let [axis, angle] = rot.toAxisAngle(_v0);
-					angle = angle - Math.PI * 2 * Math.floor((angle + Math.PI) / (Math.PI * 2));
-					let tf = angle * stiffness;
-					if (Math.abs(tf) > Math.abs(angle / dt / dt * 0.00025)) {
-						tf = angle / dt / dt * 0.00025; // TODO
-					}
-					let af = axis.scale(-tf * approxInertia, axis);
-					body.torque.vadd(af, body.torque);
-				}
-			}
-		};
-
-		let binds = [];
-		let fixedBinds = [];
-		let bodies = [];
-		let constraints = [];
-		this.physics = {
-			world: null, fixedBinds: fixedBinds, binds: binds,
-			bodies: bodies, constraints: constraints, springBoneSystem: springBoneSystem
-		};
-		for (let bg of secondaryAnimation.boneGroups) {
-			let gravity = new CANNON.Vec3().copy(bg.gravityDir || { x: 0, y: -1, z: 0 }).scale(bg.gravityPower || 0);
-			for (let b of bg.bones) {
-				nodes[b].updateWorldMatrix(true, true);
-				let root = new CANNON.Body({ mass: 0, collisionFilterGroup: 0, collisionFilterMask: 0 });
-				root.position.copy(nodes[b].getWorldPosition(this._tmpV0));
-				root.quaternion.copy(nodes[b].parent.getWorldQuaternion(this._tmpQ0));
-				bodies.push(root);
-				let add = (parentBody, node, depth) => {
-					let n = node.children.length + 1;
-					let c = node.getWorldPosition(this._tmpV0);
-					let wpos = c.clone(); // TODO
-					if (node.children.length > 0) {
-						node.children.forEach(n => {
-							c.add(n.getWorldPosition(this._tmpV1));
-						});
-					} else {
-						c.add(node.parent.getWorldPosition(this._tmpV1).sub(c).normalize().multiplyScalar(-0.1).add(c));
-						n = 2;
-					}
-					c.multiplyScalar(1 / n);
-
-					let body = new CANNON.Body({
-						mass: 0.5,
-						linearDamping: Math.max(bg.dragForce || 0, 0.0001),
-						angularDamping: Math.max(bg.dragForce || 0, 0.0001),
-						collisionFilterGroup: this.collisionGroup,
-						collisionFilterMask: ~this.collisionGroup // TODO
-					});
-					body.position.copy(c);
-					body.addShape(new CANNON.Sphere(bg.hitRadius || 0.05));
-					bodies.push(body);
-
-					let o = new CANNON.Vec3(0, 0, 0).copy(this._tmpV1.copy(wpos).sub(c));
-					let d = new CANNON.Vec3(0, 0, 0).copy(wpos.sub(parentBody.position));
-					let joint = new CANNON.PointToPointConstraint(body, o, parentBody, d);
-					constraints.push(joint);
-
-					binds.push([node, body]);
-					springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg, size: body.boundingRadius });
-					node.children.forEach(n => n.isBone && add(body, n, depth + 1));
-				};
-				add(root, nodes[b], 0);
-				fixedBinds.push([nodes[b], root]);
-			}
-		}
-	}
-	startPhysics(world) {
-		let physics = this.physics;
-		if (!physics || physics.world) {
-			return;
-		}
-		physics.internalWorld = world == null;
-		world = world || new CANNON.World();
-		physics.world = world;
-		physics.springBoneSystem.world = world;
-		world.subsystems.push(physics.springBoneSystem);
-		physics.bodies.forEach(b => world.add(b));
-		physics.constraints.forEach(c => world.addConstraint(c));
-		this.resetPhysics();
-	}
-	stopPhysics() {
-		let physics = this.physics;
-		if (!physics || !physics.world) {
-			return;
-		}
-		physics.world.subsystems = physics.world.subsystems.filter(s => s != physics.springBoneSystem);
-		physics.world.constraints = physics.world.constraints.filter(c => !physics.constraints.includes(c));
-		physics.world.bodies = physics.world.bodies.filter(b => !physics.bodies.includes(b));
-		physics.world = null;
-	}
-	resetPhysics() {
-		this.physics.fixedBinds.forEach(([node, body]) => {
-			node.updateWorldMatrix(true);
-			body.position.copy(node.getWorldPosition(this._tmpV0));
-			body.quaternion.copy(node.parent.getWorldQuaternion(this._tmpQ0));
-		});
-		this.physics.binds.forEach(([node, body]) => {
-			node.updateWorldMatrix(true);
-			body.position.copy(node.getWorldPosition(this._tmpV0));
-			body.quaternion.copy(node.getWorldQuaternion(this._tmpQ0));
-			body.velocity.set(0, 0, 0);
-			body.angularVelocity.set(0, 0, 0);
-		});
-	}
-	_updatePhysics(timeDelta) {
-		this.physics.fixedBinds.forEach(([node, body]) => {
-			body.position.copy(node.getWorldPosition(this._tmpV0));
-			body.quaternion.copy(node.parent.getWorldQuaternion(this._tmpQ0));
-		});
-		if (this.physics.internalWorld) {
-			this.physics.world.step(1 / 60, timeDelta);
-		}
-		this.physics.binds.forEach(([node, body]) => {
-			node.quaternion.copy(body.quaternion).premultiply(node.parent.getWorldQuaternion(this._tmpQ0).inverse());
-		});
 	}
 	tick(timeDelta) {
 		this.mixer.update(timeDelta);
@@ -233,7 +85,7 @@ class VRMAvatar {
 			b.quaternion.slerp(rot, speedFactor);
 		}
 		if (this.physics && this.physics.world) {
-			this._updatePhysics(timeDelta);
+			this.physics.update(timeDelta);
 		}
 	}
 	setBlendShapeWeight(name, value) {
@@ -306,9 +158,13 @@ class VRMAvatar {
 			}
 		}
 	}
+	restPose() {
+		for (let b of Object.values(this.bones)) {
+			b.quaternion.set(0, 0, 0, 1);
+		}
+	}
 	_genFirstPersonMesh(mesh) {
 		mesh.children.forEach(c => this._genFirstPersonMesh(c));
-		// TODO
 		if (mesh.isSkinnedMesh) {
 			let firstPersonBones = {};
 			this.firstPersonBone.traverse(b => {
@@ -351,52 +207,191 @@ class VRMAvatar {
 	}
 	_updateBlendShape() {
 		// TODO: refactoring. use THREE.AnimationBlendMode.
-		let times = [0];
+		let addWeights = (data, name, weights) => {
+			let blend = this.blendShapes[name];
+			blend && blend.binds.forEach(bind => {
+				let tname = bind.target.name;
+				let values = data[tname] || (data[tname] = new Array(bind.target.morphTargetInfluences.length * weights.length).fill(0));
+				for (let t = 0; t < weights.length; t++) {
+					let i = t * bind.target.morphTargetInfluences.length + bind.index;
+					values[i] += Math.max(bind.weight * weights[t], values[i]); // blend func : max
+				}
+			});
+		};
+		let times = [0], trackdata = {};
 		if (this.animatedMorph) {
 			times = this.animatedMorph.times;
-			this._currentShape[this.animatedMorph.name] = this._currentShape[this.animatedMorph.name] || 0;
+			addWeights(trackdata, this.animatedMorph.name, this.animatedMorph.values);
 		}
-		let trackdata = Object.entries(this._currentShape).reduce(
-			(data, [name, value]) => {
-				let blend = this.blendShapes[name];
-				if (!blend) {
-					return data;
-				}
-				let weights = new Array(times.length).fill(value);
-				if (this.animatedMorph && this.animatedMorph.name == name) {
-					weights = this.animatedMorph.values.map(w => Math.max(w, value));
-				}
-				blend.binds.forEach(bind => {
-					let tname = bind.target.name;
-					let values = data[tname] || (data[tname] = new Array(bind.target.morphTargetInfluences.length * weights.length).fill(0));
-					for (let t = 0; t < weights.length; t++) {
-						values[t * bind.target.morphTargetInfluences.length + bind.index] = bind.weight * weights[t];
-					}
-				});
-				return data;
-			},
-			{});
+		for (let [name, value] of Object.entries(this._currentShape)) {
+			if (this.blendShapes[name]) {
+				addWeights(trackdata, name, new Array(times.length).fill(value));
+			}
+		}
 		let tracks = Object.entries(trackdata).map(([tname, values]) =>
 			new THREE.NumberKeyframeTrack(tname + '.morphTargetInfluences', times, values));
-		if (this.morphAction) {
-			let action = this.morphAction;
-			setTimeout(() => action.stop(), 0);
+		let nextAction = null;
+		if (tracks.length > 0) {
+			let clip = new THREE.AnimationClip('morph', undefined, tracks);
+			nextAction = this.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
 		}
-		if (tracks.length == 0) {
-			this.morphAction = null;
-			return;
-		}
-		let clip = new THREE.AnimationClip('morph', undefined, tracks);
-		this.morphAction = this.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
+		this.morphAction && this.morphAction.stop();
+		this.morphAction = nextAction;
 	}
 	dispose() {
-		this.stopPhysics();
+		this.physics && this.physics.detach();
 		this.physics = null;
 		this.model.traverse(obj => {
 			obj.geometry && obj.geometry.dispose();
 			obj.material && obj.material.dispose();
 			obj.material && obj.material.map && obj.material.map.dispose();
 			obj.skeleton && obj.skeleton.dispose();
+		});
+	}
+}
+
+class VRMPhysicsCannonJS {
+	constructor(secondaryAnimation, nodes) {
+		this.collisionGroup = 2;
+		this.binds = [];
+		this.fixedBinds = [];
+		this.bodies = [];
+		this.constraints = [];
+		this._tmpQ0 = new THREE.Quaternion();
+		this._tmpV0 = new THREE.Vector3();
+		this._tmpV1 = new THREE.Vector3();
+		this.springBoneSystem = this._springBoneSystem();
+		this._init(secondaryAnimation, nodes);
+	}
+	_init(secondaryAnimation, nodes) {
+		for (let bg of secondaryAnimation.boneGroups) {
+			let gravity = new CANNON.Vec3().copy(bg.gravityDir || { x: 0, y: -1, z: 0 }).scale(bg.gravityPower || 0);
+			for (let b of bg.bones) {
+				nodes[b].updateWorldMatrix(true, true);
+				let root = new CANNON.Body({ mass: 0, collisionFilterGroup: 0, collisionFilterMask: 0 });
+				root.position.copy(nodes[b].getWorldPosition(this._tmpV0));
+				root.quaternion.copy(nodes[b].parent.getWorldQuaternion(this._tmpQ0));
+				this.bodies.push(root);
+				let add = (parentBody, node, depth) => {
+					let n = node.children.length + 1;
+					let c = node.getWorldPosition(this._tmpV0);
+					let wpos = c.clone(); // TODO
+					if (node.children.length > 0) {
+						node.children.forEach(n => {
+							c.add(n.getWorldPosition(this._tmpV1));
+						});
+					} else {
+						c.add(node.parent.getWorldPosition(this._tmpV1).sub(c).normalize().multiplyScalar(-0.1).add(c));
+						n = 2;
+					}
+					c.multiplyScalar(1 / n);
+
+					let body = new CANNON.Body({
+						mass: 0.5,
+						linearDamping: Math.max(bg.dragForce || 0, 0.0001),
+						angularDamping: Math.max(bg.dragForce || 0, 0.0001),
+						collisionFilterGroup: this.collisionGroup,
+						collisionFilterMask: ~this.collisionGroup // TODO
+					});
+					body.position.copy(c);
+					body.addShape(new CANNON.Sphere(bg.hitRadius || 0.05));
+					this.bodies.push(body);
+
+					let o = new CANNON.Vec3(0, 0, 0).copy(this._tmpV1.copy(wpos).sub(c));
+					let d = new CANNON.Vec3(0, 0, 0).copy(wpos.sub(parentBody.position));
+					let joint = new CANNON.PointToPointConstraint(body, o, parentBody, d);
+					this.constraints.push(joint);
+
+					this.binds.push([node, body]);
+					this.springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg, size: body.boundingRadius });
+					node.children.forEach(n => n.isBone && add(body, n, depth + 1));
+				};
+				add(root, nodes[b], 0);
+				this.fixedBinds.push([nodes[b], root]);
+			}
+		}
+	}
+	_springBoneSystem() {
+		let _q0 = new CANNON.Quaternion();
+		let _q1 = new CANNON.Quaternion();
+		let _v0 = new CANNON.Vec3();
+		return {
+			world: null,
+			objects: [], // : [{body, force, parentBody, boneGroup}]
+			update() {
+				let g = this.world.gravity, dt = this.world.dt;
+				let avlimit = 0.1;
+				for (let b of this.objects) {
+					let body = b.body, parent = b.parentBody;
+					// Cancel world.gravity and apply boneGroup.gravity.
+					let f = body.force, m = body.mass, g2 = b.force;
+					f.x += m * (-g.x + g2.x);
+					f.y += m * (-g.y + g2.y);
+					f.z += m * (-g.z + g2.z);
+
+					// angularVelocity limitation
+					let av = body.angularVelocity.length();
+					if (av > avlimit) {
+						body.angularVelocity.scale(avlimit / av, body.angularVelocity);
+					}
+
+					// apply spring(?) force.
+					let stiffness = b.boneGroup.stiffiness; // stiff'i'ness
+					let approxInertia = b.size * b.size * m * 1600;
+					let rot = body.quaternion.mult(parent.quaternion.inverse(_q0), _q1);
+					let [axis, angle] = rot.toAxisAngle(_v0);
+					angle = angle - Math.PI * 2 * Math.floor((angle + Math.PI) / (Math.PI * 2));
+					let tf = angle * stiffness;
+					if (Math.abs(tf) > Math.abs(angle / dt / dt * 0.00025)) {
+						tf = angle / dt / dt * 0.00025; // TODO
+					}
+					let af = axis.scale(-tf * approxInertia, axis);
+					body.torque.vadd(af, body.torque);
+				}
+			}
+		};
+	}
+	attach(world) {
+		this.detach();
+		this.world = world || new CANNON.World();
+		this.internalWorld = world == null;
+		this.springBoneSystem.world = this.world;
+		this.world.subsystems.push(this.springBoneSystem);
+		this.bodies.forEach(b => this.world.add(b));
+		this.constraints.forEach(c => this.world.addConstraint(c));
+		this.reset();
+	}
+	detach() {
+		if (!this.world) {
+			return;
+		}
+		this.world.subsystems = this.world.subsystems.filter(s => s != this.springBoneSystem);
+		this.world.constraints = this.world.constraints.filter(c => !this.constraints.includes(c));
+		this.world.bodies = this.world.bodies.filter(b => !this.bodies.includes(b));
+		this.world = null;
+	}
+	reset() {
+		this.fixedBinds.forEach(([node, body]) => {
+			node.updateWorldMatrix(true);
+			body.position.copy(node.getWorldPosition(this._tmpV0));
+			body.quaternion.copy(node.parent.getWorldQuaternion(this._tmpQ0));
+		});
+		this.binds.forEach(([node, body]) => {
+			node.updateWorldMatrix(true);
+			body.position.copy(node.getWorldPosition(this._tmpV0));
+			body.quaternion.copy(node.getWorldQuaternion(this._tmpQ0));
+		});
+	}
+	update(timeDelta) {
+		this.fixedBinds.forEach(([node, body]) => {
+			body.position.copy(node.getWorldPosition(this._tmpV0));
+			body.quaternion.copy(node.parent.getWorldQuaternion(this._tmpQ0));
+		});
+		if (this.internalWorld) {
+			this.world.step(1 / 60, timeDelta);
+		}
+		this.binds.forEach(([node, body]) => {
+			node.quaternion.copy(body.quaternion).premultiply(node.parent.getWorldQuaternion(this._tmpQ0).inverse());
 		});
 	}
 }
@@ -441,7 +436,7 @@ AFRAME.registerComponent('vrm', {
 	},
 	remove() {
 		if (this.avatar) {
-			this.el.removeObject3D('avatar', this.avatar.model);
+			this.el.removeObject3D('avatar');
 			this.avatar.dispose();
 		}
 	},
@@ -477,10 +472,14 @@ AFRAME.registerComponent('vrm', {
 						}
 					});
 				}
-				this.avatar.startPhysics(world);
+				if (this.avatar.physics) {
+					this.avatar.physics.attach(world);
+				}
 			}
 		} else {
-			this.avatar.stopPhysics();
+			if (this.avatar.physics) {
+				this.avatar.physics.detach();
+			}
 		}
 	}
 });
@@ -613,7 +612,7 @@ AFRAME.registerComponent('vrm-bvh', {
 
 AFRAME.registerComponent('vrm-skeleton', {
 	schema: {
-		physicsOffset: { type: 'vec3', default: { x: 1, y: 0, z: 0 } },
+		physicsOffset: { type: 'vec3', default: { x: 0, y: 0, z: 0 } },
 	},
 	init() {
 		this.physicsBodies = [];
@@ -638,7 +637,7 @@ AFRAME.registerComponent('vrm-skeleton', {
 			return;
 		}
 		let geometry = new THREE.SphereGeometry(1, 4, 3);
-		let material = new THREE.MeshBasicMaterial({ color: new THREE.Color("red"), wireframe: true });
+		let material = new THREE.MeshBasicMaterial({ color: new THREE.Color("red"), wireframe: true, depthTest: false });
 		avatar.physics.bodies.forEach(body => {
 			let obj = new THREE.Mesh(geometry, material);
 			obj.scale.multiplyScalar(body.boundingRadius);
@@ -704,10 +703,10 @@ AFRAME.registerComponent('vrm-poser', {
 		this._removeHandles();
 		this.avatar = avatar;
 		let geometry = new THREE.BoxGeometry(1, 1, 1);
-		let material = new THREE.MeshBasicMaterial({ color: new THREE.Color(this.data.color) });
-		material.depthTest = false;
-		material.transparent = true;
-		material.opacity = 0.4;
+		let material = new THREE.MeshBasicMaterial({
+			color: new THREE.Color(this.data.color),
+			transparent: true, opacity: 0.4, depthTest: false,
+		});
 		let _v0 = this._tmpV0, _v1 = this._tmpV1, _m = this._tmpM0, _q = this._tmpQ0;
 		let rootNode = avatar.bones['hips'];
 		let boneNameByUUID = {};
