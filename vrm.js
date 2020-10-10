@@ -26,7 +26,6 @@ class VRMAvatar {
 	}
 	async init(gltf) {
 		this.model = gltf.scene;
-		this.mixer = new THREE.AnimationMixer(this.model);
 		let vrmExt = (gltf.userData.gltfExtensions || {}).VRM;
 		if (!vrmExt) {
 			return this;
@@ -54,6 +53,21 @@ class VRMAvatar {
 			this.physics = new VRMPhysicsCannonJS(vrmExt.secondaryAnimation, nodes);
 		}
 		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
+		this.mixer = new THREE.AnimationMixer(this.model);
+		if (bones.hips) {
+			// Extends bounding box.
+			let center = bones.hips.getWorldPosition(this._tmpV0).clone();
+			this.model.traverse(obj => {
+				if (obj.isSkinnedMesh) {
+					let pos = obj.getWorldPosition(this._tmpV0).sub(center).multiplyScalar(-1);
+					let r = (pos.clone().sub(obj.geometry.boundingSphere.center).length() + obj.geometry.boundingSphere.radius);
+					obj.geometry.boundingSphere.center.copy(pos);
+					obj.geometry.boundingSphere.radius = r;
+					obj.geometry.boundingBox.min.set(pos.x - r, pos.y - r, pos.z - r);
+					obj.geometry.boundingBox.max.set(pos.x + r, pos.y + r, pos.z + r);
+				}
+			});
+		}
 		return this;
 	}
 	_initBlendShapes(blendShapeMaster, meshes) {
@@ -429,14 +443,20 @@ AFRAME.registerComponent('vrm', {
 		if (data.src !== oldData.src) {
 			this.remove();
 			if (data.src) {
-				new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(data.src, async (gltf) => {
-					this.avatar = await new VRMAvatar().init(gltf);
-					el.setObject3D('avatar', this.avatar.model);
+				let url = data.src;
+				new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(url, async (gltf) => {
+					let avatar = await new VRMAvatar().init(gltf);
+					if (url != data.src) {
+						avatar.dispose();
+						return;
+					}
+					this.avatar = avatar;
+					el.setObject3D('avatar', avatar.model);
 					this._updateAvatar();
 					this.play();
-					el.emit('model-loaded', { format: 'vrm', model: this.avatar.model, avatar: this.avatar }, false);
+					el.emit('model-loaded', { format: 'vrm', model: avatar.model, avatar: avatar }, false);
 				}, undefined, (error) => {
-					el.emit('model-error', { format: 'vrm', src: data.src, cause: error }, false);
+					el.emit('model-error', { format: 'vrm', src: url, cause: error }, false);
 				});
 			}
 		}
