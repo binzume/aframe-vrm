@@ -1,19 +1,31 @@
 'use strict';
 
 class VRMAvatar {
-	constructor() {
-		this.model = null; // THREE.Object3D
-		this.mixer = null; // THREE.AnimationMixer
-		this.bones = {}; // : { boneName : Object3D }
-		this.blendShapes = {}; // : { key : { name:string, binds:[] } }
-		this.physics = null; // VRMPhysicsCannonJS
+	constructor(gltf) {
+		/** @type {THREE.Object3D} */
+		this.model = gltf.scene;
+		/** @type {THREE.AnimationMixer} */
+		this.mixer = new THREE.AnimationMixer(this.model);
+		/** @type {Record<string, THREE.Object3D>} */
+		this.bones = {};
+		/** @type {Record<string, { name:string, binds:object[]}>} */
+		this.blendShapes = {};
+		/** @type {VRMPhysicsCannonJS | null} */
+		this.physics = null;
+		/** @type {Record<string, any>} */
 		this.meta = {};
+		/** @type {boolean} */
+		this.isVRM = (gltf.userData.gltfExtensions || {}).VRM != null;
+
+		this.lookAtTarget = null;
 		this._currentShape = {};
 		this._identQ = new THREE.Quaternion();
 		this._zV = new THREE.Vector3(0, 0, -1);
 		this._tmpQ0 = new THREE.Quaternion();
 		this._tmpV0 = new THREE.Vector3();
 		this._annotatedMeshes = [];
+		this._gltf = gltf;
+
 		// TODO: configurable constraints
 		this.boneConstraints = {
 			'head': { type: 'ball', limit: 60 * Math.PI / 180, twistAxis: new THREE.Vector3(0, 1, 0), twistLimit: 60 * Math.PI / 180 },
@@ -24,12 +36,13 @@ class VRMAvatar {
 			'rightLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 0 * Math.PI / 180 }
 		};
 	}
-	async init(gltf) {
-		this.model = gltf.scene;
-		let vrmExt = (gltf.userData.gltfExtensions || {}).VRM;
-		if (!vrmExt) {
+	async init() {
+		let gltf = this._gltf;
+		this._gltf = null;
+		if (!this.isVRM) {
 			return this;
 		}
+		let vrmExt = gltf.userData.gltfExtensions.VRM;
 		let bones = this.bones;
 		let nodes = await gltf.parser.getDependencies('node');
 		let meshes = await gltf.parser.getDependencies('mesh');
@@ -53,21 +66,7 @@ class VRMAvatar {
 			this.physics = new VRMPhysicsCannonJS(vrmExt.secondaryAnimation, nodes);
 		}
 		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
-		this.mixer = new THREE.AnimationMixer(this.model);
-		if (bones.hips) {
-			// Extends bounding box.
-			let center = bones.hips.getWorldPosition(this._tmpV0).clone();
-			this.model.traverse(obj => {
-				if (obj.isSkinnedMesh) {
-					let pos = obj.getWorldPosition(this._tmpV0).sub(center).multiplyScalar(-1);
-					let r = (pos.clone().sub(obj.geometry.boundingSphere.center).length() + obj.geometry.boundingSphere.radius);
-					obj.geometry.boundingSphere.center.copy(pos);
-					obj.geometry.boundingSphere.radius = r;
-					obj.geometry.boundingBox.min.set(pos.x - r, pos.y - r, pos.z - r);
-					obj.geometry.boundingBox.max.set(pos.x + r, pos.y + r, pos.z + r);
-				}
-			});
-		}
+		this._fixBoundingBox();
 		return this;
 	}
 	_initBlendShapes(blendShapeMaster, meshes) {
@@ -80,6 +79,24 @@ class VRMAvatar {
 			blendShapes[(bg.presetName || bg.name).toUpperCase()] = { name: bg.name, binds: binds };
 			return blendShapes;
 		}, {});
+	}
+	_fixBoundingBox() {
+		let bones = this.bones;
+		if (!bones.hips) {
+			return;
+		}
+		// Extends bounding box.
+		let center = bones.hips.getWorldPosition(this._tmpV0).clone();
+		this.model.traverse(obj => {
+			if (obj.isSkinnedMesh) {
+				let pos = obj.getWorldPosition(this._tmpV0).sub(center).multiplyScalar(-1);
+				let r = (pos.clone().sub(obj.geometry.boundingSphere.center).length() + obj.geometry.boundingSphere.radius);
+				obj.geometry.boundingSphere.center.copy(pos);
+				obj.geometry.boundingSphere.radius = r;
+				obj.geometry.boundingBox.min.set(pos.x - r, pos.y - r, pos.z - r);
+				obj.geometry.boundingBox.max.set(pos.x + r, pos.y + r, pos.z + r);
+			}
+		});
 	}
 	tick(timeDelta) {
 		this.mixer.update(timeDelta);
@@ -445,7 +462,7 @@ AFRAME.registerComponent('vrm', {
 			if (data.src) {
 				let url = data.src;
 				new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(url, async (gltf) => {
-					let avatar = await new VRMAvatar().init(gltf);
+					let avatar = await new VRMAvatar(gltf).init();
 					if (url != data.src) {
 						avatar.dispose();
 						return;
@@ -671,7 +688,7 @@ AFRAME.registerComponent('vrm-skeleton', {
 		if (!avatar.physics || !avatar.physics.world) {
 			return;
 		}
-		let geometry = new THREE.SphereGeometry(1, 4, 3);
+		let geometry = new THREE.SphereGeometry(1, 6, 3);
 		let material = new THREE.MeshBasicMaterial({ color: new THREE.Color("red"), wireframe: true, depthTest: false });
 		avatar.physics.bodies.forEach(body => {
 			let obj = new THREE.Group();
