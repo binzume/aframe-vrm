@@ -102,7 +102,7 @@ class VRMAvatar {
 		this.mixer.update(timeDelta);
 		if (this.lookAtTarget && this.firstPersonBone) {
 			let b = this.firstPersonBone;
-			let targetDirection = b.worldToLocal(this.lookAtTarget.getWorldPosition(this._tmpV0)).normalize();
+			let targetDirection = b.worldToLocal(this._tmpV0.setFromMatrixPosition(this.lookAtTarget.matrixWorld)).normalize();
 			let rot = this._tmpQ0.setFromUnitVectors(this._zV, targetDirection);
 			let boneLimit = this.boneConstraints.head.limit;
 			let speedFactor = 0.08;
@@ -1065,8 +1065,9 @@ AFRAME.registerComponent('vrm-mimic', {
 			return;
 		}
 		if (this.headTarget) {
-			let position = this.headTarget.getWorldPosition(this._tmpV0);
-			let headRot = this.headTarget.getWorldQuaternion(this._tmpQ0);
+			let position = this._tmpV0;
+			let headRot = this._tmpQ0;
+			this.headTarget.matrixWorld.decompose(position, headRot, this._tmpV1)
 			position.y = 0;
 			this.avatar.model.position.copy(position.add(this.data.avatarOffset));
 			let head = this.avatar.firstPersonBone;
