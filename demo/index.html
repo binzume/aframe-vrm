@@ -5,7 +5,7 @@
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>VRM Test</title>
-  <script src="https://binzume.github.io/aframe/dist/aframe-master.min.js"></script>
+  <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
   <script src="https://binzume.github.io/aframe-xylayout/dist/xylayout-all.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
   <script src="../vrm.js"></script>
@@ -32,7 +32,7 @@
       <a-entity laser-controls="hand: left" id="leftHand" raycaster="objects:.collidable"></a-entity>
 
       <!-- Avatar control panel -->
-      <a-xywindow position="-7 3 -9" title="Models" width="3" height="4" window-locator xycontainer="direction:column">
+      <a-xywindow position="-7 3 -9" title="Models" width="3" height="4" window-locator xycontainer="direction:column;alignItems:stretch;">
         <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
           <a-xylabel value="AutoBlink" width="2"></a-xylabel>
           <a-xytoggle id="blink-toggle" value="true"></a-xytoggle>
@@ -72,7 +72,7 @@
 
       <!-- Blend shape panel -->
       <a-xywindow position="7 3 -9" title="BlendShape" width="3" height="4" pose-editor-window window-locator
-        xycontainer="direction:column">
+        xycontainer="direction:column;alignItems:stretch;">
         <a-xycontainer height="0.5" direction="row" align-items="stretch" justify-items="stretch" spacing="0.05">
           <a-xybutton name="reset-all-morph" label="ResetAll" height=0.5></a-xybutton>
         </a-xycontainer>

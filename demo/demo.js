@@ -61,7 +61,10 @@ AFRAME.registerComponent('camera-control', {
         });
     },
     resetPosition() {
-        this.el.sceneEl.querySelector('a-sky').object3D.visible = !this.el.sceneEl.is('ar-mode');
+        let sky = this.el.sceneEl.querySelector('a-sky');
+        if (sky) {
+            sky.object3D.visible = !this.el.sceneEl.is('ar-mode');
+        }
         if (this.el.sceneEl.is('vr-mode')) {
             this.el.setAttribute('position', this.data.vrHomePosition);
         } else {
@@ -135,17 +138,15 @@ AFRAME.registerComponent('hand-controller', {
         this.physics = null;
         this._tmpQ0 = new THREE.Quaternion();
         this._tmpV0 = new THREE.Vector3();
+        this._tmpV1 = new THREE.Vector3();
         if (this.el.sceneEl.systems.webxr) {
             this.el.sceneEl.setAttribute('webxr', 'optionalFeatures:bounded-floor,hand-tracking');
             let hand0 = this.el.sceneEl.renderer.xr.getHand(0);
-            hand0.addEventListener('connected', ev => this._handConnected(hand0, ev, 'hand0'));
-            hand0.addEventListener('disconnected', ev => this._handDisconnected(hand0, ev, 'hand0'));
+            hand0.addEventListener('connected', ev => this._handConnected(hand0, ev, 'leftHand'));
+            hand0.addEventListener('disconnected', ev => this._handDisconnected(hand0, ev, 'leftHand'));
             let hand1 = this.el.sceneEl.renderer.xr.getHand(1);
-            hand1.addEventListener('connected', ev => this._handConnected(hand1, ev, 'hand1'));
-            hand1.addEventListener('disconnected', ev => this._handDisconnected(hand1, ev, 'hand1'));
-        }
-        if (globalThis.CANNON && this.el.sceneEl.systems.physics && this.el.sceneEl.systems.physics.driver) {
-            this.physics = { driver: this.el.sceneEl.systems.physics.driver };
+            hand1.addEventListener('connected', ev => this._handConnected(hand1, ev, 'rightHand'));
+            hand1.addEventListener('disconnected', ev => this._handDisconnected(hand1, ev, 'rightHand'));
         }
     },
     tick() {
@@ -155,14 +156,49 @@ AFRAME.registerComponent('hand-controller', {
         }
         hands.forEach(hand => {
             hand.binds.forEach(([node, obj, body]) => {
-                obj.position.copy(node.getWorldPosition(this._tmpV0));
-                obj.quaternion.copy(node.getWorldQuaternion(this._tmpQ0));
-                obj.visible = node.visible;
                 if (body) {
-                    body.position.copy(obj.getWorldPosition(this._tmpV0));
-                    body.quaternion.copy(obj.getWorldQuaternion(this._tmpQ0));
+                    body.position.copy(node.getWorldPosition(this._tmpV0));
+                    body.quaternion.copy(node.getWorldQuaternion(this._tmpQ0));
                 }
             });
+            hand.fingerLen = hand.fingers.map(n => {
+                let len = 0;
+                for (let i = n - 3; i < n; i++) {
+                    len += this._tmpV0.copy(hand.hand.joints[i + 1].position).sub(hand.hand.joints[i].position).length();
+                }
+                return len;
+            });
+            let dd = hand.fingers.map((n, i) => { // 4
+                let tip = hand.hand.joints[n];
+                let root = hand.hand.joints[n - 3];
+                let tipPos = tip.getWorldPosition(this._tmpV0);
+                let rootPos = root.getWorldPosition(this._tmpV1);
+                if (hand.fingerLen[i] > 0.01) {
+                    let r = tipPos.sub(rootPos).length() / hand.fingerLen[i];
+                    if (r < 0.6 || r > 0.9) {
+                        return r < 0.6;
+                    }
+                }
+                return undefined;
+            });
+            hand.fingerState = dd;
+            let open = dd[0] == false && dd[1] == false && dd[2] == false && dd[3] == false && dd[4] == false;
+            if (!hand.open && open) {
+                let el = document.getElementById(hand.name);
+                if (el) {
+                    el.setAttribute('raycaster', 'far', 0.04);
+                }
+            }
+            hand.open = open;
+            let pointing = dd[1] == false && dd[2] == true && dd[3] == true && dd[4] == true;
+            if (!hand.pointing && pointing) {
+                hand.pointing = pointing;
+                let el = document.getElementById(hand.name);
+                if (el) {
+                    el.setAttribute('raycaster', 'far', Infinity);
+                }
+            }
+            hand.pointing = pointing;
         });
     },
     remove() {
@@ -175,21 +211,23 @@ AFRAME.registerComponent('hand-controller', {
         if (!ev.data.hand || this.hands[name]) {
             return;
         }
+        if (globalThis.CANNON && this.el.sceneEl.systems.physics && this.el.sceneEl.systems.physics.driver) {
+            this.physics = { driver: this.el.sceneEl.systems.physics.driver };
+        }
         console.log("hand", hand, ev);
         let geometry = new THREE.BoxGeometry(1, 1, 1);
         let material = new THREE.MeshBasicMaterial({ color: new THREE.Color(this.data.color) });
         material.transparent = true;
         material.opacity = 0.4;
 
-        let model = new THREE.Group();
-        this.el.setObject3D(name, model);
-        let handData = { hand: hand, model: model, binds: [] };
+        this.el.setObject3D(name, hand);
+        let handData = { hand: hand, name: name, binds: [], fingers: [4, 9, 14, 19, 24] };
         this.hands[name] = handData;
         for (let joint of hand.joints) {
             let cube = new THREE.Mesh(geometry, material);
             let scale = Math.min(joint.jointRadius || 0.015, 0.05);
             cube.scale.set(scale, scale, scale);
-            model.add(cube);
+            joint.add(cube);
             let body = null;
             if (this.physics) {
                 body = new CANNON.Body({
@@ -216,6 +254,7 @@ AFRAME.registerComponent('hand-controller', {
         this.el.removeObject3D(name);
         if (this.hands[name]) {
             this.hands[name].binds.forEach(([node, obj, body]) => {
+                obj.parent.remove(obj);
                 if (body) {
                     this.physics.driver.removeBody(body);
                 }
@@ -303,7 +342,7 @@ window.addEventListener('DOMContentLoaded', (ev) => {
     let files = motions.map(path => { let m = path.match(/([^\/]+)\.\w+$/); return m ? m[1] : path }).join(',');
     document.getElementById('animation-select').setAttribute('values', files);
     document.getElementById('animation-select').addEventListener('change', (ev) => {
-        vrmEl.setAttribute('vrm-bvh', { 'src': motions[ev.detail.index] });
+        vrmEl.setAttribute('vrm-bvh', { src: motions[ev.detail.index], format: '' });
     });
 
     document.getElementById('skeleton-toggle').addEventListener('change', (ev) => {
@@ -378,8 +417,8 @@ window.addEventListener('DOMContentLoaded', (ev) => {
                 vrmEl.setAttribute('vrm', { 'src': url });
                 models.push({ name: file.name, src: url });
                 list.setContents(models);
-            } else if (namelc.endsWith('.bvh')) {
-                vrmEl.setAttribute('vrm-bvh', { 'src': URL.createObjectURL(file) });
+            } else if (namelc.endsWith('.bvh') || namelc.endsWith('.vmd')) {
+                vrmEl.setAttribute('vrm-bvh', { src: URL.createObjectURL(file), format: namelc.endsWith('.bvh') ? 'bvh' : '' });
             }
         }
     });
