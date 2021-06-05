@@ -12,7 +12,7 @@
 
 - [Live DEMO](https://binzume.github.io/aframe-vrm/demo/)
 - [Live DEMO(Physics)](https://binzume.github.io/aframe-vrm/demo/physics.html) (using [aframe-physics-system](https://github.com/n5ro/aframe-physics-system))
-- VRM/BVHファイルをブラウザにドラッグ＆ドロップするとプレビューできます(アップロードはされません)
+- VRM/GLB,BVH/VMDファイルをブラウザにドラッグ＆ドロップするとプレビューできます(アップロードはされません)
 - WebVRはOculus Questでテストしています
 
 ![AliciaSolid](./demo/alicia1.gif)
@@ -39,7 +39,7 @@ npm: [@binzume/aframe-vrm](https://www.npmjs.com/package/@binzume/aframe-vrm)
 ## Components
 
 - vrm: Load vrm model
-- vrm-bvh: Play BVH animation
+- vrm-bvh: Play BVH/VMD animation
 - vrm-poser: pose editor for VR
 - vrm-skeleton: display skeleton
 - vrm-mimic: TODO
@@ -89,6 +89,7 @@ Attributes:
 | name        | type     | default | desc |
 | ----------- | -------- | ------- | ---- |
 | src         | string   | ''      | BVH file url |
+| format      | string   | ''      | `vmd` or `bvh` (default: auto detect) |
 | convertBone | boolean  | true    | Convert bone name |
 
 srcを空にすると待機アニメーションが再生されます(テスト用)．
