@@ -16,6 +16,8 @@ class VRMAvatar {
 		this.meta = {};
 		/** @type {boolean} */
 		this.isVRM = (gltf.userData.gltfExtensions || {}).VRM != null;
+		/** @type {[THREE.AnimationClip]} */
+		this.animations = gltf.animations || [];
 
 		this.lookAtTarget = null;
 		this._currentShape = {};
@@ -40,6 +42,11 @@ class VRMAvatar {
 		let gltf = this._gltf;
 		this._gltf = null;
 		if (!this.isVRM) {
+			// animation test
+			if (this.animations.length > 0) {
+				let aa = this.mixer.clipAction(this.animations[0]).setLoop(THREE.LoopOnce, 1).play();
+				aa.clampWhenFinished = true;
+			}
 			return this;
 		}
 		let vrmExt = gltf.userData.gltfExtensions.VRM;
@@ -67,6 +74,10 @@ class VRMAvatar {
 		}
 		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
 		this._fixBoundingBox();
+		if (this.animations.length > 0) {
+			let aa = this.mixer.clipAction(gltf.animations[0]).setLoop(THREE.LoopRepeat, Infinity).play();
+			aa.clampWhenFinished = true;
+		}
 		return this;
 	}
 	_initBlendShapes(blendShapeMaster, meshes) {
@@ -442,6 +453,254 @@ class VRMPhysicsCannonJS {
 	}
 }
 
+class BVHLoaderWrapper {
+	/**
+	 * @param {string} url 
+	 * @param {VRMAvatar} avatar 
+	 */
+	async load(url, avatar, options) {
+		let { BVHLoader } = await import('https://threejs.org/examples/jsm/loaders/BVHLoader.js');
+		return await new Promise((resolve, reject) => {
+			new BVHLoader().load(url, result => {
+				if (options.convertBone) {
+					this.convertClip(result.clip, avatar);
+				}
+				result.clip.tracks = result.clip.tracks.filter(t => !t.name.match(/position/) || t.name.match(avatar.bones.hips.name));
+				resolve(result.clip);
+			});
+		});
+
+	}
+	convertBoneName(name) {
+		name = name.replace('Spin1', 'Spin');
+		name = name.replace('Chest1', 'Chest');
+		name = name.replace('Chest2', 'UpperChest');
+		name = name.replace('UpLeg', 'UpperLeg');
+		name = name.replace('LeftLeg', 'LeftLowerLeg');
+		name = name.replace('RightLeg', 'RightLowerLeg');
+		name = name.replace('ForeArm', 'UpperArm');
+		name = name.replace('LeftArm', 'LeftLowerArm');
+		name = name.replace('RightArm', 'RightLowerArm');
+		name = name.replace('Collar', 'Shoulder');
+		name = name.replace('Elbow', 'LowerArm');
+		name = name.replace('Wrist', 'Hand');
+		name = name.replace('LeftHip', 'LeftUpperLeg');
+		name = name.replace('RightHip', 'RightUpperLeg');
+		name = name.replace('Knee', 'LowerLeg');
+		name = name.replace('Ankle', 'Foot');
+		return name.charAt(0).toLowerCase() + name.slice(1);
+	}
+	convertClip(clip, avatar) {
+		clip.tracks.forEach(t => {
+			// '.bones[Chest].quaternion'
+			t.name = t.name.replace(/bones\[(\w+)\]/, (m, name) => {
+				let bone = avatar.bones[this.convertBoneName(name)];
+				return 'bones[' + (bone != null ? bone.name : 'NODE_NOT_FOUND') + ']';
+			});
+			t.name = t.name.replace('ToeBase', 'Foot');
+			if (t.name.match(/quaternion/)) {
+				t.values = t.values.map((v, i) => i % 2 === 0 ? -v : v);
+			}
+			if (t.name.match(/position/)) {
+				t.values = t.values.map((v, i) => (i % 3 === 1 ? v : -v) * 0.09); // TODO
+			}
+		});
+		clip.tracks = clip.tracks.filter(t => !t.name.match(/NODE_NOT_FOUND/));
+	}
+}
+class VMDLoaderWrapper {
+	constructor() {
+		this.boneMapping = [
+			{ "bone": "hips", "nodeNames": ["センター", "center"] },
+			{ "bone": "spine", "nodeNames": ["上半身", "upper body"] },
+			{ "bone": "chest", "nodeNames": ["上半身2", "upper body2"] },
+			{ "bone": "neck", "nodeNames": ["首", "neck"] },
+			{ "bone": "head", "nodeNames": ["頭", "head"] },
+			{ "bone": "leftShoulder", "nodeNames": ["左肩", "shoulder_L"] },
+			{ "bone": "leftUpperArm", "nodeNames": ["左腕", "arm_L"] },
+			{ "bone": "leftLowerArm", "nodeNames": ["左ひじ", "elbow_L"] },
+			{ "bone": "leftHand", "nodeNames": ["左手首", "wrist_L"] },
+			{ "bone": "rightShoulder", "nodeNames": ["右肩", "shoulder_R"] },
+			{ "bone": "rightUpperArm", "nodeNames": ["右腕", "arm_R"] },
+			{ "bone": "rightLowerArm", "nodeNames": ["右ひじ", "elbow_R"] },
+			{ "bone": "rightHand", "nodeNames": ["右手首", "wrist_R"] },
+			{ "bone": "leftUpperLeg", "nodeNames": ["左足", "leg_L"] },
+			{ "bone": "leftLowerLeg", "nodeNames": ["左ひざ", "knee_L"] },
+			{ "bone": "leftFoot", "nodeNames": ["左足首", "ankle_L"] },
+			{ "bone": "leftToes", "nodeNames": ["左つま先", "L toe"] },
+			{ "bone": "rightUpperLeg", "nodeNames": ["右足", "leg_R"] },
+			{ "bone": "rightLowerLeg", "nodeNames": ["右ひざ", "knee_R"] },
+			{ "bone": "rightFoot", "nodeNames": ["右足首", "ankle_R"] },
+			{ "bone": "rightToes", "nodeNames": ["右つま先", "R toe"] },
+			{ "bone": "leftEye", "nodeNames": ["左目", "eye_L"] },
+			{ "bone": "rightEye", "nodeNames": ["右目", "eye_R"] },
+			{ "bone": "leftThumbProximal", "nodeNames": ["左親指０", "thumb0_L"] },
+			{ "bone": "leftThumbIntermediate", "nodeNames": ["左親指１", "thumb1_L"] },
+			{ "bone": "leftThumbDistal", "nodeNames": ["左親指２", "thumb2_L"] },
+			{ "bone": "leftIndexProximal", "nodeNames": ["左人指１", "fore1_L"] },
+			{ "bone": "leftIndexIntermediate", "nodeNames": ["左人指２", "fore2_L"] },
+			{ "bone": "leftIndexDistal", "nodeNames": ["左人指３", "fore3_L"] },
+			{ "bone": "leftMiddleProximal", "nodeNames": ["左中指１", "middle1_L"] },
+			{ "bone": "leftMiddleIntermediate", "nodeNames": ["左中指２", "middle2_L"] },
+			{ "bone": "leftMiddleDistal", "nodeNames": ["左中指３", "middle3_L"] },
+			{ "bone": "leftRingProximal", "nodeNames": ["左薬指１", "third1_L"] },
+			{ "bone": "leftRingIntermediate", "nodeNames": ["左薬指２", "third2_L"] },
+			{ "bone": "leftRingDistal", "nodeNames": ["左薬指３", "third3_L"] },
+			{ "bone": "leftLittleProximal", "nodeNames": ["左小指１", "little1_L"] },
+			{ "bone": "leftLittleIntermediate", "nodeNames": ["左小指２", "little2_L"] },
+			{ "bone": "leftLittleDistal", "nodeNames": ["左小指３", "little3_L"] },
+			{ "bone": "rightThumbProximal", "nodeNames": ["右親指０", "thumb0_R"] },
+			{ "bone": "rightThumbIntermediate", "nodeNames": ["右親指１", "thumb1_R"] },
+			{ "bone": "rightThumbDistal", "nodeNames": ["右親指２", "thumb2_R"] },
+			{ "bone": "rightIndexProximal", "nodeNames": ["右人指１", "fore1_R"] },
+			{ "bone": "rightIndexIntermediate", "nodeNames": ["右人指２", "fore2_R"] },
+			{ "bone": "rightIndexDistal", "nodeNames": ["右人指３", "fore3_R"] },
+			{ "bone": "rightMiddleProximal", "nodeNames": ["右中指１", "middle1_R"] },
+			{ "bone": "rightMiddleIntermediate", "nodeNames": ["右中指２", "middle2_R"] },
+			{ "bone": "rightMiddleDistal", "nodeNames": ["右中指３", "middle3_R"] },
+			{ "bone": "rightRingProximal", "nodeNames": ["右薬指１", "third1_R"] },
+			{ "bone": "rightRingIntermediate", "nodeNames": ["右薬指２", "third2_R"] },
+			{ "bone": "rightRingDistal", "nodeNames": ["右薬指３", "third3_R"] },
+			{ "bone": "rightLittleProximal", "nodeNames": ["右小指１", "little1_R"] },
+			{ "bone": "rightLittleIntermediate", "nodeNames": ["右小指２", "little2_R"] },
+			{ "bone": "rightLittleDistal", "nodeNames": ["右小指３", "little3_R"] },
+		];
+		this.blendShapeMap = {
+			"A": "あ",
+			"I": "い",
+			"U": "う",
+			"E": "え",
+			"O": "お",
+			"BLINK": "まばたき",
+		};
+		this.rotationOffsets = {
+			"leftUpperArm": -40 * THREE.MathUtils.DEG2RAD,
+			"rightUpperArm": 40 * THREE.MathUtils.DEG2RAD,
+		};
+	}
+	/**
+	 * 
+	 * @param {string} url 
+	 * @param {VRMAvatar} vrm 
+	 */
+	async load(url, vrm, options) {
+		let { MMDLoader } = await import('https://threejs.org/examples/jsm/loaders/MMDLoader.js');
+		let loader = new MMDLoader();
+
+		let nameMap = {};
+		for (let m of this.boneMapping) {
+			let boneObj = vrm.bones[m.bone];
+			if (boneObj) {
+				for (let name of m.nodeNames) {
+					nameMap[name] = boneObj.name;
+				}
+			}
+		}
+		let rotationOffsets = {};
+		let boneTransforms = {};
+		for (let [name, r] of Object.entries(this.rotationOffsets)) {
+			let boneObj = vrm.bones[name];
+			if (boneObj) {
+				rotationOffsets[boneObj.name] = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), r);
+				boneObj.traverse(o => {
+					boneTransforms[o.name] = [Math.cos(r), Math.sin(r)]; // TODO matrix
+				});
+			}
+		}
+		let morphTargetDictionary = {};
+		for (let [name, morph] of Object.entries(this.blendShapeMap)) {
+			let b = vrm.blendShapes[name];
+			if (b) {
+				morphTargetDictionary[morph] = name;
+			}
+		}
+
+		/** @ts-ignore */
+		vrm.model.morphTargetDictionary = morphTargetDictionary;
+		let scale = 0.08; // MMD unit: 8cm
+		let rotY = (p, t) => {
+			[p[0], p[2]] = [
+				p[0] * t[0] - p[2] * t[1],
+				p[0] * t[1] + p[2] * t[0]
+			];
+		};
+		let rotZ = (p, t) => {
+			[p[0], p[1]] = [
+				p[0] * t[0] - p[1] * t[1],
+				p[0] * t[1] + p[1] * t[0]
+			];
+		};
+		let rot = new THREE.Quaternion();
+		let rot2 = new THREE.Quaternion();
+		return await new Promise((resolve, reject) => {
+			loader.loadVMD(url, (/** @type {{motions: [object]}} */ vmd) => {
+				// Cancel lower body rotation
+				let lowerBody = vmd.motions.filter(m => m.boneName == "下半身");
+				if (lowerBody.length) {
+					lowerBody.sort((a, b) => a.frameNum - b.frameNum);
+					/**
+					 * @param {*} target 
+					 * @param {*} inv 
+					 */
+					let update = (target, inv) => {
+						target.sort((a, b) => a.frameNum - b.frameNum);
+						let i = 0;
+						for (let m of target) {
+							while (i < lowerBody.length - 1 && m.frameNum > lowerBody[i].frameNum) {
+								i++;
+							}
+							let r = rot2.fromArray(lowerBody[i].rotation);
+							if (i > 0 && m.frameNum < lowerBody[i].frameNum) {
+								let t = (m.frameNum - lowerBody[i - 1].frameNum) / (lowerBody[i].frameNum - lowerBody[i - 1].frameNum);
+								// TOOD: bezier interpolation.
+								r.slerp(rot.fromArray(lowerBody[i - 1].rotation), 1 - t);
+							}
+							if (inv) r.invert();
+							m.rotation = rot.fromArray(m.rotation).multiply(r).toArray();
+						}
+					};
+					update(vmd.motions.filter(m => m.boneName == "センター"), false);
+					update(vmd.motions.filter(m => m.boneName == "上半身"), true);
+					lowerBody.forEach(m => m.rotation = [0, 0, 0, 1]);
+				}
+				// convert bones
+				for (let m of vmd.motions) {
+					if (nameMap[m.boneName]) {
+						m.boneName = nameMap[m.boneName];
+					}
+					let r = rotationOffsets[m.boneName];
+					if (r) {
+						m.rotation = rot.fromArray(m.rotation).multiply(r).toArray();
+					}
+					m.position[0] *= scale;
+					m.position[1] *= scale;
+					m.position[2] *= scale;
+					rotY(m.position, [-1, 0]);
+					rotY(m.rotation, [-1, 0]);
+					let t = boneTransforms[m.boneName];
+					if (t) {
+						rotZ(m.position, t);
+						rotZ(m.rotation, t);
+					}
+				}
+				/** @type {THREE.AnimationClip} */
+				let clip = loader.animationBuilder.build(vmd, vrm.model);
+				clip.tracks.forEach(tr => {
+					let m = tr.name.match(/.morphTargetInfluences\[(\w+)\]/);
+					if (m) {
+						let b = vrm.blendShapes[m[1]];
+						if (b && b.binds.length > 0) {
+							// todo clone track.
+							tr.name = b.binds[0].target.uuid + ".morphTargetInfluences[" + b.binds[0].index + "]";
+						}
+					}
+				});
+				resolve(clip);
+			}, () => { }, reject);
+		});
+	}
+}
+
 AFRAME.registerComponent('vrm', {
 	schema: {
 		src: { default: '' },
@@ -539,9 +798,12 @@ AFRAME.registerComponent('vrm', {
 AFRAME.registerComponent('vrm-bvh', {
 	schema: {
 		src: { default: '' },
+		format: { default: '' },
+		loop: { default: true },
 		convertBone: { default: true },
 	},
 	init() {
+		/** @type {VRMAvatar} */
 		this.avatar = null;
 		if (this.el.components.vrm && this.el.components.vrm.avatar) {
 			this.avatar = this.el.components.vrm.avatar;
@@ -549,8 +811,8 @@ AFRAME.registerComponent('vrm-bvh', {
 		this.onVrmLoaded = (ev) => {
 			this.avatar = ev.detail.avatar;
 			if (this.data.src != '') {
-				this._loadBVH(this.data.src, THREE.LoopRepeat);
-			} else {
+				this._loadClip(this.data.src);
+			} else if (!this.avatar.animations.length) {
 				this.playTestMotion();
 			}
 		};
@@ -558,7 +820,33 @@ AFRAME.registerComponent('vrm-bvh', {
 	},
 	update(oldData) {
 		if (oldData.src != this.data.src && this.avatar) {
-			this._loadBVH(this.data.src, THREE.LoopRepeat);
+			this._loadClip(this.data.src);
+		}
+	},
+	/**
+	 * 
+	 * @param {string} url 
+	 * @returns 
+	 */
+	async _loadClip(url) {
+		this.stopAnimation();
+		if (url === '') {
+			return;
+		}
+		let loop = this.data.loop ? THREE.LoopRepeat : THREE.LoopOnce;
+		let format = this.data.format || (url.toLowerCase().endsWith('.bvh') ? 'bvh' : '');
+		let loader = format == 'bvh' ? new BVHLoaderWrapper() : new VMDLoaderWrapper()
+		let clip = await loader.load(url, this.avatar, this.data);
+		if (!this.avatar) {
+			return;
+		}
+		this.clip = clip;
+		this.animation = this.avatar.mixer.clipAction(clip).setLoop(loop).setEffectiveWeight(1.0).play();
+	},
+	stopAnimation() {
+		if (this.animation) {
+			this.animation.stop();
+			this.avatar.mixer.uncacheClip(this.clip);
 		}
 	},
 	playTestMotion() {
@@ -567,7 +855,7 @@ AFRAME.registerComponent('vrm-bvh', {
 			leftUpperArm: {
 				keys: [
 					{ rot: q(0, 0, 65), time: 0 },
-					{ rot: q(0, 0, 60), time: 1 },
+					{ rot: q(0, 0, 63), time: 1 },
 					{ rot: q(0, 0, 65), time: 2 },
 				]
 			},
@@ -581,9 +869,9 @@ AFRAME.registerComponent('vrm-bvh', {
 			spine: {
 				keys: [
 					{ rot: q(0, 2, 0), time: 0 },
-					{ rot: q(0, 0, -3), time: 1 },
-					{ rot: q(0, -2, 0), time: 2 },
-					{ rot: q(0, 0, 3), time: 3 },
+					{ rot: q(2, 0, -2), time: 1 },
+					{ rot: q(2, -2, 0), time: 2 },
+					{ rot: q(0, 0, 2), time: 3 },
 					{ rot: q(0, 2, 0), time: 4 },
 				]
 			}
@@ -597,63 +885,6 @@ AFRAME.registerComponent('vrm-bvh', {
 		);
 		this.clip = clip;
 		this.animation = this.avatar.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
-	},
-	async _loadBVH(path, loop = THREE.LoopOnce) {
-		this.stopAnimation();
-		if (path === '') {
-			return;
-		}
-		let { BVHLoader } = await import('https://threejs.org/examples/jsm/loaders/BVHLoader.js');
-		new BVHLoader().load(path, result => {
-			if (!this.avatar) {
-				return;
-			}
-			if (this.data.convertBone) {
-				this.convertClip(result.clip);
-			}
-			result.clip.tracks = result.clip.tracks.filter(t => !t.name.match(/position/) || t.name.match(this.avatar.bones.hips.name));
-			this.clip = result.clip;
-			this.animation = this.avatar.mixer.clipAction(result.clip).setLoop(loop).setEffectiveWeight(1.0).play();
-		});
-	},
-	convertClip(clip) {
-		clip.tracks.forEach(t => {
-			// '.bones[Chest].quaternion'
-			t.name = t.name.replace(/bones\[(\w+)\]/, (m, name) => {
-				name = name.replace('Spin1', 'Spin');
-				name = name.replace('Chest1', 'Chest');
-				name = name.replace('Chest2', 'UpperChest');
-				name = name.replace('UpLeg', 'UpperLeg');
-				name = name.replace('LeftLeg', 'LeftLowerLeg');
-				name = name.replace('RightLeg', 'RightLowerLeg');
-				name = name.replace('ForeArm', 'UpperArm');
-				name = name.replace('LeftArm', 'LeftLowerArm');
-				name = name.replace('RightArm', 'RightLowerArm');
-				name = name.replace('Collar', 'Shoulder');
-				name = name.replace('Elbow', 'LowerArm');
-				name = name.replace('Wrist', 'Hand');
-				name = name.replace('LeftHip', 'LeftUpperLeg');
-				name = name.replace('RightHip', 'RightUpperLeg');
-				name = name.replace('Knee', 'LowerLeg');
-				name = name.replace('Ankle', 'Foot');
-				let bone = this.avatar.bones[name.charAt(0).toLowerCase() + name.slice(1)];
-				return 'bones[' + (bone != null ? bone.name : 'NOT_FOUND') + ']';
-			});
-			t.name = t.name.replace('ToeBase', 'Foot');
-			if (t.name.match(/quaternion/)) {
-				t.values = t.values.map((v, i) => i % 2 === 0 ? -v : v);
-			}
-			if (t.name.match(/position/)) {
-				t.values = t.values.map((v, i) => (i % 3 === 1 ? v : -v) * 0.09); // TODO
-			}
-		});
-		clip.tracks = clip.tracks.filter(t => !t.name.match(/NOT_FOUND/));
-	},
-	stopAnimation() {
-		if (this.animation) {
-			this.animation.stop();
-			this.avatar.mixer.uncacheClip(this.clip);
-		}
 	},
 	remove() {
 		this.el.removeEventListener('model-loaded', this.onVrmLoaded);
