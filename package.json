@@ -1,7 +1,7 @@
 {
   "name": "@binzume/aframe-vrm",
   "description": "VRM components for A-Frame",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "author": "binzume",
   "files": [
     "README.md"
@@ -9,8 +9,8 @@
   "main": "vrm.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dist-concat": "node_modules/.bin/uglifyjs -b -o dist/aframe-vrm.js -- *.js",
-    "dist-min": "node_modules/.bin/uglifyjs --compress pure_getters=true --mangle --mangle-props regex=/^_/ --source-map -o dist/aframe-vrm.min.js -- *.js",
+    "dist-concat": "npx uglifyjs -b -o dist/aframe-vrm.js -- *.js",
+    "dist-min": "npx uglifyjs --compress pure_getters=true --mangle --mangle-props regex=/^_/ --source-map -o dist/aframe-vrm.min.js -- *.js",
     "dist": "npm run dist-min && ls -la dist/*.js"
   },
   "publishConfig": {
