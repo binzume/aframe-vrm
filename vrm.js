@@ -6,12 +6,12 @@ class VRMAvatar {
 		this.model = gltf.scene;
 		/** @type {THREE.AnimationMixer} */
 		this.mixer = new THREE.AnimationMixer(this.model);
-		/** @type {Record<string, THREE.Object3D>} */
+		/** @type {Record<string, THREE.Bone>} */
 		this.bones = {};
 		/** @type {Record<string, { name:string, binds:object[]}>} */
 		this.blendShapes = {};
-		/** @type {VRMPhysicsCannonJS | null} */
-		this.physics = null;
+		/** @type {Record<string, { update:((number)=>void), detach:(()=>void)}>} */
+		this.modules = {};
 		/** @type {Record<string, any>} */
 		this.meta = {};
 		/** @type {boolean} */
@@ -37,6 +37,14 @@ class VRMAvatar {
 			'leftLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 0 * Math.PI / 180 },
 			'rightLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 0 * Math.PI / 180 }
 		};
+	}
+	static async load(url) {
+		return new Promise((resolve, reject) => {
+			// @ts-ignore
+			new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(url, async (gltf) => {
+				resolve(await new VRMAvatar(gltf).init());
+			}, undefined, reject);
+		});
 	}
 	async init() {
 		let gltf = this._gltf;
@@ -69,9 +77,9 @@ class VRMAvatar {
 			this._initBlendShapes(vrmExt.blendShapeMaster, meshes);
 		}
 		if (vrmExt.secondaryAnimation && globalThis.CANNON) {
-			console.log('init physics', vrmExt.secondaryAnimation);
-			this.physics = new VRMPhysicsCannonJS(vrmExt.secondaryAnimation, nodes);
+			this.setModule('physics', new VRMPhysicsCannonJS(vrmExt.secondaryAnimation, nodes));
 		}
+		// @ts-ignore
 		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
 		this._fixBoundingBox();
 		if (this.animations.length > 0) {
@@ -98,7 +106,7 @@ class VRMAvatar {
 		}
 		// Extends bounding box.
 		let center = bones.hips.getWorldPosition(this._tmpV0).clone();
-		this.model.traverse(obj => {
+		this.model.traverse((/** @type {THREE.SkinnedMesh} */ obj) => {
 			if (obj.isSkinnedMesh) {
 				let pos = obj.getWorldPosition(this._tmpV0).sub(center).multiplyScalar(-1);
 				let r = (pos.clone().sub(obj.geometry.boundingSphere.center).length() + obj.geometry.boundingSphere.radius);
@@ -122,13 +130,21 @@ class VRMAvatar {
 				rot = this._identQ;
 				speedFactor = 0.04;
 			} else if (angle > boneLimit) {
-				rot.setFromAxisAngle(this._tmpV0.copy(rot).normalize(), boneLimit);
+				rot.setFromAxisAngle(this._tmpV0.set(rot.x, rot.y, rot.z).normalize(), boneLimit);
 			}
 			b.quaternion.slerp(rot, speedFactor);
 		}
-		if (this.physics && this.physics.world) {
-			this.physics.update(timeDelta);
+		// TODO: stable order.
+		for (let m of Object.values(this.modules)) {
+			m.update(timeDelta);
 		}
+	}
+	setModule(name, module) {
+		this.modules[name] = module;
+	}
+	removeModule(name) {
+		this.modules[name] && this.modules[name].detach && this.modules[name].detach();
+		delete this.modules[name];
 	}
 	setBlendShapeWeight(name, value) {
 		this._currentShape[name] = value;
@@ -281,12 +297,16 @@ class VRMAvatar {
 		this.morphAction = nextAction;
 	}
 	dispose() {
-		this.physics && this.physics.detach();
+		for (let m of Object.keys(this.modules)) {
+			this.removeModule(m);
+		}
 		this.physics = null;
-		this.model.traverse(obj => {
-			obj.geometry && obj.geometry.dispose();
-			obj.material && obj.material.dispose();
-			obj.material && obj.material.map && obj.material.map.dispose();
+		this.model.traverse((obj) => {
+			if (obj.isMesh) {
+				obj.geometry.dispose();
+				obj.material.dispose();
+				obj.material.map && obj.material.map.dispose();
+			}
 			obj.skeleton && obj.skeleton.dispose();
 		});
 	}
@@ -364,7 +384,7 @@ class VRMPhysicsCannonJS {
 					this.springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg, size: radius });
 					node.children.forEach(n => n.isBone && add(body, n));
 				};
-				add(root, nodes[b], 0);
+				add(root, nodes[b]);
 			}
 		}
 	}
@@ -440,6 +460,9 @@ class VRMPhysicsCannonJS {
 		});
 	}
 	update(timeDelta) {
+		if (!this.world) {
+			return;
+		}
 		this.fixedBinds.forEach(([node, body]) => {
 			body.position.copy(node.getWorldPosition(this._tmpV0));
 			body.quaternion.copy(node.getWorldQuaternion(this._tmpQ0));
@@ -448,7 +471,7 @@ class VRMPhysicsCannonJS {
 			this.world.step(1 / 60, timeDelta);
 		}
 		this.binds.forEach(([node, body]) => {
-			node.quaternion.copy(body.quaternion).premultiply(node.parent.getWorldQuaternion(this._tmpQ0).inverse());
+			node.quaternion.copy(body.quaternion).premultiply(node.parent.getWorldQuaternion(this._tmpQ0).invert());
 		});
 	}
 }
@@ -574,8 +597,20 @@ class VMDLoaderWrapper {
 			"BLINK": "まばたき",
 		};
 		this.rotationOffsets = {
-			"leftUpperArm": -40 * THREE.MathUtils.DEG2RAD,
-			"rightUpperArm": 40 * THREE.MathUtils.DEG2RAD,
+			"leftUpperArm": -35 * THREE.MathUtils.DEG2RAD,
+			"rightUpperArm": 35 * THREE.MathUtils.DEG2RAD,
+		};
+		this.ikConfigs = [
+			{ target: "左足ＩＫ", bones: [`leftFoot`, 'leftLowerLeg', 'leftUpperLeg'] },
+			{ target: "右足ＩＫ", bones: [`rightFoot`, 'rightLowerLeg', 'rightUpperLeg'] },
+			{ target: "左つま先ＩＫ", parent: 0, bones: [`leftToes`, `leftFoot`] },
+			{ target: "右つま先ＩＫ", parent: 1, bones: [`rightToes`, `rightFoot`] },
+		];
+		this.boneConstraints = {
+			'leftLowerLeg': { min: new THREE.Vector3(-175 * Math.PI / 180, 0, 0), max: new THREE.Vector3(0, 0, 0) },
+			'rightLowerLeg': { min: new THREE.Vector3(-175 * Math.PI / 180, 0, 0), max: new THREE.Vector3(0, 0, 0) },
+			'leftUpperLeg': { min: new THREE.Vector3(-Math.PI / 2, -Math.PI / 2, -Math.PI / 2), max: new THREE.Vector3(Math.PI, Math.PI / 2, Math.PI / 2) },
+			'rightUpperLeg': { min: new THREE.Vector3(-Math.PI / 2, -Math.PI / 2, -Math.PI / 2), max: new THREE.Vector3(Math.PI, Math.PI / 2, Math.PI / 2) },
 		};
 	}
 	/**
@@ -585,6 +620,7 @@ class VMDLoaderWrapper {
 	 */
 	async load(url, vrm, options) {
 		let { MMDLoader } = await import('https://threejs.org/examples/jsm/loaders/MMDLoader.js');
+		let { CCDIKSolver } = await import('https://threejs.org/examples/jsm/animation/CCDIKSolver.js');
 		let loader = new MMDLoader();
 
 		let nameMap = {};
@@ -633,7 +669,7 @@ class VMDLoaderWrapper {
 		let rot = new THREE.Quaternion();
 		let rot2 = new THREE.Quaternion();
 		return await new Promise((resolve, reject) => {
-			loader.loadVMD(url, (/** @type {{motions: [object]}} */ vmd) => {
+			loader.loadVMD(url, async (/** @type {{motions: [object]}} */ vmd) => {
 				// Cancel lower body rotation
 				let lowerBody = vmd.motions.filter(m => m.boneName == "下半身");
 				if (lowerBody.length) {
@@ -670,7 +706,7 @@ class VMDLoaderWrapper {
 					}
 					let r = rotationOffsets[m.boneName];
 					if (r) {
-						m.rotation = rot.fromArray(m.rotation).multiply(r).toArray();
+						m.rotation = rot.fromArray(m.rotation).premultiply(r).toArray();
 					}
 					m.position[0] *= scale;
 					m.position[1] *= scale;
@@ -683,6 +719,72 @@ class VMDLoaderWrapper {
 						rotZ(m.rotation, t);
 					}
 				}
+
+				if (options.enableIK) {
+					/** @type {THREE.Bone[]} */
+					// @ts-ignore
+					let skeletonBones = vrm.model.skeleton.bones;
+					let getTargetBone = (config) => {
+						let targetIndex = skeletonBones.findIndex(b => b.name == config.target);
+						if (targetIndex >= 0) {
+							return targetIndex;
+						}
+						let parentObj = config.parent != null ? skeletonBones[getTargetBone(this.ikConfigs[config.parent])] : vrm.model;
+						let dummyBone = new THREE.Bone();
+						dummyBone.name = config.target;
+						skeletonBones.push(dummyBone);
+						parentObj.add(dummyBone);
+						parentObj.updateMatrixWorld();
+						let initPos = vrm.bones[config.bones[0]].getWorldPosition(new THREE.Vector3());
+						dummyBone.position.copy(initPos.applyMatrix4(parentObj.matrixWorld.clone().invert()));
+
+						// DEBUG
+						//let geometry = new THREE.BoxGeometry(0.01, 0.01, 0.01);
+						//let material = new THREE.MeshBasicMaterial({
+						//	color: new THREE.Color("red"),
+						//	transparent: true, opacity: 0.4, depthTest: false,
+						//});
+						//dummyBone.add(new THREE.Mesh(geometry, material));
+						return skeletonBones.length - 1;
+					}
+					let iks = [];
+					for (let config of this.ikConfigs) {
+						if (vmd.motions.find(m => m.boneName == config.target) == undefined) {
+							continue;
+						}
+						let boneIndex = (name) => skeletonBones.findIndex(b => b == vrm.bones[name]);
+						let effectorIndex = boneIndex(config.bones[0]);
+						if (effectorIndex < 0) {
+							continue;
+						}
+						let ik = {
+							target: getTargetBone(config),
+							effector: effectorIndex,
+							links: [],
+							maxAngle: 1,
+							iteration: 4,
+						};
+						config.bones.slice(1).forEach(name => {
+							let index = boneIndex(name);
+							if (index >= 0) {
+								let link = { index: index };
+								let constraint = this.boneConstraints[name];
+								if (constraint) {
+									link.rotationMax = constraint.max;
+									link.rotationMin = constraint.min;
+								}
+								ik.links.push(link);
+							}
+						});
+						iks.push(ik);
+					}
+					if (iks.length > 0) {
+						console.log(iks);
+						let ikSolver = new CCDIKSolver(vrm.model, iks);
+						vrm.setModule('MMDIK', { update: (t) => ikSolver.update() });
+					}
+				}
+
 				/** @type {THREE.AnimationClip} */
 				let clip = loader.animationBuilder.build(vmd, vrm.model);
 				clip.tracks.forEach(tr => {
@@ -714,27 +816,9 @@ AFRAME.registerComponent('vrm', {
 		this.avatar = null;
 	},
 	update(oldData) {
-		let el = this.el;
-		let data = this.data;
-		if (data.src !== oldData.src) {
+		if (this.data.src !== oldData.src) {
 			this.remove();
-			if (data.src) {
-				let url = data.src;
-				new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(url, async (gltf) => {
-					let avatar = await new VRMAvatar(gltf).init();
-					if (url != data.src) {
-						avatar.dispose();
-						return;
-					}
-					this.avatar = avatar;
-					el.setObject3D('avatar', avatar.model);
-					this._updateAvatar();
-					this.play();
-					el.emit('model-loaded', { format: 'vrm', model: avatar.model, avatar: avatar }, false);
-				}, undefined, (error) => {
-					el.emit('model-error', { format: 'vrm', src: url, cause: error }, false);
-				});
-			}
+			this._loadAvatar();
 		}
 		this._updateAvatar();
 	},
@@ -749,6 +833,27 @@ AFRAME.registerComponent('vrm', {
 		if (this.avatar) {
 			this.el.removeObject3D('avatar');
 			this.avatar.dispose();
+		}
+	},
+	async _loadAvatar() {
+		let el = this.el;
+		let url = this.data.src;
+		if (!url) {
+			return;
+		}
+		try {
+			let avatar = await VRMAvatar.load(url);
+			if (url != this.data.src) {
+				avatar.dispose();
+				return;
+			}
+			this.avatar = avatar;
+			el.setObject3D('avatar', avatar.model);
+			this._updateAvatar();
+			this.play();
+			el.emit('model-loaded', { format: 'vrm', model: avatar.model, avatar: avatar }, false);
+		} catch (e) {
+			el.emit('model-error', { format: 'vrm', src: url, cause: e }, false);
 		}
 	},
 	_updateAvatar() {
@@ -771,11 +876,14 @@ AFRAME.registerComponent('vrm', {
 		} else {
 			this.avatar.stopBlink();
 		}
+		/** @type {VRMPhysicsCannonJS} */
+		let physics = this.avatar.modules.physics;
 		if (data.enablePhysics) {
-			if (this.avatar.physics && this.avatar.physics.world == null) {
-				let world = null;
-				if (this.el.sceneEl.systems.physics && this.el.sceneEl.systems.physics.driver) {
-					world = this.el.sceneEl.systems.physics.driver.world;
+			if (physics && physics.world == null) {
+				let engine = this.el.sceneEl.systems.physics;
+				// @ts-ignore
+				let world = engine && engine.driver && engine.driver.world;
+				if (world) {
 					// HACK: update collision mask.
 					world.bodies.forEach(b => {
 						if (b.collisionFilterGroup == 1 && b.collisionFilterMask == 1) {
@@ -783,13 +891,13 @@ AFRAME.registerComponent('vrm', {
 						}
 					});
 				}
-				if (this.avatar.physics) {
-					this.avatar.physics.attach(world);
+				if (physics) {
+					physics.attach(world);
 				}
 			}
 		} else {
-			if (this.avatar.physics) {
-				this.avatar.physics.detach();
+			if (physics) {
+				physics.detach();
 			}
 		}
 	}
@@ -800,6 +908,7 @@ AFRAME.registerComponent('vrm-bvh', {
 		src: { default: '' },
 		format: { default: '' },
 		loop: { default: true },
+		enableIK: { default: true },
 		convertBone: { default: true },
 	},
 	init() {
@@ -847,6 +956,7 @@ AFRAME.registerComponent('vrm-bvh', {
 		if (this.animation) {
 			this.animation.stop();
 			this.avatar.mixer.uncacheClip(this.clip);
+			this.avatar.removeModule('MMDIK');
 		}
 	},
 	playTestMotion() {
@@ -916,12 +1026,14 @@ AFRAME.registerComponent('vrm-skeleton', {
 	},
 	_updatePhysicsBody(avatar) {
 		this._clearPhysicsBody();
-		if (!avatar.physics || !avatar.physics.world) {
+		/** @type {VRMPhysicsCannonJS} */
+		let physics = avatar.modules.physics;
+		if (!physics || !physics.world) {
 			return;
 		}
 		let geometry = new THREE.SphereGeometry(1, 6, 3);
 		let material = new THREE.MeshBasicMaterial({ color: new THREE.Color("red"), wireframe: true, depthTest: false });
-		avatar.physics.bodies.forEach(body => {
+		physics.bodies.forEach(body => {
 			let obj = new THREE.Group();
 			body.shapes.forEach((shape, i) => {
 				let sphere = new THREE.Mesh(geometry, material);
@@ -1091,7 +1203,7 @@ AFRAME.registerComponent('vrm-poser', {
 		let _v = this._tmpV0;
 		let container = this.el.object3D;
 		container.updateMatrixWorld(false);
-		let base = new THREE.Matrix4().getInverse(container.matrixWorld);
+		let base = container.matrixWorld.clone().invert();
 		this.binds.forEach(([node, target]) => {
 			let pos = node == skipNode ? _v : target.position;
 			node.updateMatrixWorld(false);
@@ -1145,13 +1257,13 @@ class IKSolver {
 				let bone = bones[j];
 				let endPos = bones[j + 1].position;
 				bone.worldMatrix.decompose(this._tmpV1, this._tmpQ0, this._tmpV2);
-				targetDir.copy(currentTarget).sub(this._tmpV1).applyQuaternion(rotation.copy(this._tmpQ0).inverse()).normalize();
+				targetDir.copy(currentTarget).sub(this._tmpV1).applyQuaternion(rotation.copy(this._tmpQ0).invert()).normalize();
 				endDir.copy(endPos).normalize();
 				rotation.setFromUnitVectors(endDir, targetDir);
 				bone.quaternion.multiply(rotation);
 				let v = endDir.copy(endPos).applyQuaternion(this._tmpQ0.multiply(rotation));
 				if (bone.constraint) {
-					rotation.copy(bone.quaternion).inverse();
+					rotation.copy(bone.quaternion).invert();
 					if (bone.constraint.apply(bone)) {
 						// TODO
 						rotation.premultiply(bone.quaternion);
@@ -1303,12 +1415,12 @@ AFRAME.registerComponent('vrm-mimic', {
 			this.avatar.model.position.copy(position.add(this.data.avatarOffset));
 			let head = this.avatar.firstPersonBone;
 			if (head) {
-				let r = this._tmpQ1.setFromRotationMatrix(head.parent.matrixWorld).inverse();
+				let r = this._tmpQ1.setFromRotationMatrix(head.parent.matrixWorld).invert();
 				head.quaternion.copy(headRot.premultiply(r));
 			}
 		}
 		if (this.simpleIK) {
-			let pm = new THREE.Matrix4().getInverse(this.el.object3D.matrixWorld);
+			let pm = this.el.object3D.matrixWorld.clone().invert();
 			for (let chain of this.chains) {
 				// TODO: add chain.root.position
 				let baseMat = chain.root.parent.matrixWorld.clone().premultiply(pm);
@@ -1327,7 +1439,7 @@ AFRAME.registerComponent('vrm-mimic', {
 			}
 			this.qbinds.forEach(([bone, t, offset]) => {
 				let m = offset ? t.matrixWorld.clone().multiply(offset) : t.matrixWorld;
-				let r = this._tmpQ0.setFromRotationMatrix(bone.parent.matrixWorld).inverse();
+				let r = this._tmpQ0.setFromRotationMatrix(bone.parent.matrixWorld).invert();
 				bone.quaternion.copy(this._tmpQ1.setFromRotationMatrix(m).premultiply(r));
 			});
 		}
