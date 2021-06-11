@@ -597,8 +597,8 @@ class VMDLoaderWrapper {
 			"BLINK": "まばたき",
 		};
 		this.rotationOffsets = {
-			"leftUpperArm": -35 * THREE.MathUtils.DEG2RAD,
-			"rightUpperArm": 35 * THREE.MathUtils.DEG2RAD,
+			"leftUpperArm": -38 * THREE.MathUtils.DEG2RAD,
+			"rightUpperArm": 38 * THREE.MathUtils.DEG2RAD,
 		};
 		this.ikConfigs = [
 			{ target: "左足ＩＫ", bones: [`leftFoot`, 'leftLowerLeg', 'leftUpperLeg'] },
@@ -939,6 +939,7 @@ AFRAME.registerComponent('vrm-bvh', {
 	 */
 	async _loadClip(url) {
 		this.stopAnimation();
+		this.avatar.restPose();
 		if (url === '') {
 			return;
 		}
@@ -950,6 +951,7 @@ AFRAME.registerComponent('vrm-bvh', {
 			return;
 		}
 		this.clip = clip;
+		this.avatar.mixer.setTime(0);
 		this.animation = this.avatar.mixer.clipAction(clip).setLoop(loop).setEffectiveWeight(1.0).play();
 	},
 	stopAnimation() {

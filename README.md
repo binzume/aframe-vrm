@@ -82,7 +82,7 @@ Attributes:
 
 ### vrm-bvh
 
-Play bvh animation.
+Play bvh/vmd animation.
 
 Attributes:
 
