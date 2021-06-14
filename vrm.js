@@ -10,23 +10,21 @@ class VRMAvatar {
 		this.bones = {};
 		/** @type {Record<string, { name:string, binds:object[]}>} */
 		this.blendShapes = {};
-		/** @type {Record<string, { update:((number)=>void), detach:(()=>void)}>} */
+		/** @type {Record<string, VRMModule>} */
 		this.modules = {};
-		/** @type {Record<string, any>} */
-		this.meta = {};
 		/** @type {boolean} */
 		this.isVRM = (gltf.userData.gltfExtensions || {}).VRM != null;
-		/** @type {[THREE.AnimationClip]} */
+		/** @type {{[key: string]: any}} */
+		this.meta = this.isVRM ? gltf.userData.gltfExtensions.VRM.meta : {};
+		/** @type {THREE.AnimationClip[]} */
 		this.animations = gltf.animations || [];
+		/** @type {THREE.Bone | null} */
+		this.firstPersonBone = null;
 
-		this.lookAtTarget = null;
-		this._currentShape = {};
-		this._identQ = new THREE.Quaternion();
-		this._zV = new THREE.Vector3(0, 0, -1);
-		this._tmpQ0 = new THREE.Quaternion();
-		this._tmpV0 = new THREE.Vector3();
-		this._annotatedMeshes = [];
-		this._gltf = gltf;
+		/** @type {FirstPersonMeshUtil | null} */
+		this._firstPersonMeshUtil = null;
+		/** @type {VRMBlendShapeUtil} */
+		this._blendShapeUtil = new VRMBlendShapeUtil(this);
 
 		// TODO: configurable constraints
 		this.boneConstraints = {
@@ -38,17 +36,27 @@ class VRMAvatar {
 			'rightLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 0 * Math.PI / 180 }
 		};
 	}
-	static async load(url) {
+	/**
+	 * Load a VRM avatar
+	 *
+	 * @param {string} url 
+	 * @param {VRMModuleSpec[]} moduleSpecs 
+	 * @returns {Promise<VRMAvatar>}
+	 */
+	static async load(url, moduleSpecs = []) {
 		return new Promise((resolve, reject) => {
 			// @ts-ignore
 			new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(url, async (gltf) => {
-				resolve(await new VRMAvatar(gltf).init());
+				resolve(await new VRMAvatar(gltf).init(gltf, moduleSpecs));
 			}, undefined, reject);
 		});
 	}
-	async init() {
-		let gltf = this._gltf;
-		this._gltf = null;
+	/**
+	 * @param {*} gltf 
+	 * @param {VRMModuleSpec[]} moduleSpecs 
+	 * @returns {Promise<VRMAvatar>}
+	 */
+	async init(gltf, moduleSpecs = []) {
 		if (!this.isVRM) {
 			// animation test
 			if (this.animations.length > 0) {
@@ -61,37 +69,39 @@ class VRMAvatar {
 		let bones = this.bones;
 		let nodes = await gltf.parser.getDependencies('node');
 		let meshes = await gltf.parser.getDependencies('mesh');
+		let initCtx = { nodes: nodes, meshes: meshes, vrm: vrmExt, gltf: gltf };
 
-		this.meta = vrmExt.meta;
 		Object.values(vrmExt.humanoid.humanBones).forEach((humanBone) => {
 			bones[humanBone.bone] = nodes[humanBone.node];
 		});
 		if (vrmExt.firstPerson && vrmExt.firstPerson.firstPersonBone) {
 			this.firstPersonBone = nodes[vrmExt.firstPerson.firstPersonBone];
+			this.modules.lookat = new VRMLookAt(this, initCtx);
 		}
 		if (vrmExt.firstPerson && vrmExt.firstPerson.meshAnnotations) {
-			this._annotatedMeshes =
-				vrmExt.firstPerson.meshAnnotations.map(ma => ({ flag: ma.firstPersonFlag, mesh: meshes[ma.mesh] }));
-		}
-		if (vrmExt.blendShapeMaster) {
-			this._initBlendShapes(vrmExt.blendShapeMaster, meshes);
-		}
-		if (vrmExt.secondaryAnimation && globalThis.CANNON) {
-			this.setModule('physics', new VRMPhysicsCannonJS(vrmExt.secondaryAnimation, nodes));
+			this._firstPersonMeshUtil = new FirstPersonMeshUtil(this, initCtx);
 		}
 		// @ts-ignore
 		this.model.skeleton = new THREE.Skeleton(Object.values(bones));
 		this._fixBoundingBox();
-		if (this.animations.length > 0) {
-			let aa = this.mixer.clipAction(gltf.animations[0]).setLoop(THREE.LoopRepeat, Infinity).play();
-			aa.clampWhenFinished = true;
+		if (vrmExt.blendShapeMaster) {
+			this._initBlendShapes(initCtx);
+		}
+		for (let spec of moduleSpecs) {
+			let mod = spec.instantiate(this, initCtx);
+			if (mod) {
+				this.modules[spec.name] = mod;
+			}
 		}
 		return this;
 	}
-	_initBlendShapes(blendShapeMaster, meshes) {
-		this.blendShapes = (blendShapeMaster.blendShapeGroups || []).reduce((blendShapes, bg) => {
+	/**
+	 * @param {InitCtx} ctx 
+	 */
+	_initBlendShapes(ctx) {
+		this.blendShapes = (ctx.vrm.blendShapeMaster.blendShapeGroups || []).reduce((blendShapes, bg) => {
 			let binds = bg.binds.flatMap(bind => {
-				let meshObj = meshes[bind.mesh];
+				let meshObj = ctx.meshes[bind.mesh];
 				return (meshObj.isSkinnedMesh ? [meshObj] : meshObj.children.filter(obj => obj.isSkinnedMesh))
 					.map(obj => ({ target: obj, index: bind.index, weight: bind.weight / 100 }));
 			});
@@ -105,10 +115,11 @@ class VRMAvatar {
 			return;
 		}
 		// Extends bounding box.
-		let center = bones.hips.getWorldPosition(this._tmpV0).clone();
+		let tmpV = new THREE.Vector3();
+		let center = bones.hips.getWorldPosition(tmpV).clone();
 		this.model.traverse((/** @type {THREE.SkinnedMesh} */ obj) => {
 			if (obj.isSkinnedMesh) {
-				let pos = obj.getWorldPosition(this._tmpV0).sub(center).multiplyScalar(-1);
+				let pos = obj.getWorldPosition(tmpV).sub(center).multiplyScalar(-1);
 				let r = (pos.clone().sub(obj.geometry.boundingSphere.center).length() + obj.geometry.boundingSphere.radius);
 				obj.geometry.boundingSphere.center.copy(pos);
 				obj.geometry.boundingSphere.radius = r;
@@ -117,78 +128,55 @@ class VRMAvatar {
 			}
 		});
 	}
+	/**
+	 * @param {number} timeDelta 
+	 */
 	tick(timeDelta) {
 		this.mixer.update(timeDelta);
-		if (this.lookAtTarget && this.firstPersonBone) {
-			let b = this.firstPersonBone;
-			let targetDirection = b.worldToLocal(this._tmpV0.setFromMatrixPosition(this.lookAtTarget.matrixWorld)).normalize();
-			let rot = this._tmpQ0.setFromUnitVectors(this._zV, targetDirection);
-			let boneLimit = this.boneConstraints.head.limit;
-			let speedFactor = 0.08;
-			let angle = 2 * Math.acos(rot.w);
-			if (angle > boneLimit * 1.5) {
-				rot = this._identQ;
-				speedFactor = 0.04;
-			} else if (angle > boneLimit) {
-				rot.setFromAxisAngle(this._tmpV0.set(rot.x, rot.y, rot.z).normalize(), boneLimit);
-			}
-			b.quaternion.slerp(rot, speedFactor);
-		}
 		// TODO: stable order.
 		for (let m of Object.values(this.modules)) {
 			m.update(timeDelta);
 		}
 	}
+	/**
+	 * @param {string} name 
+	 * @param {VRMModule} module 
+	 */
 	setModule(name, module) {
+		this.removeModule(name);
 		this.modules[name] = module;
 	}
+	/**
+	 * @param {string} name 
+	 */
 	removeModule(name) {
-		this.modules[name] && this.modules[name].detach && this.modules[name].detach();
+		this.modules[name] && this.modules[name].dispose && this.modules[name].dispose();
 		delete this.modules[name];
 	}
-	setBlendShapeWeight(name, value) {
-		this._currentShape[name] = value;
-		if (value == 0) {
-			delete this._currentShape[name];
+	get lookAtTarget() {
+		let lookat = /** @type {VRMLookAt} */(this.modules.lookat);
+		return lookat ? lookat.target : null;
+	}
+	set lookAtTarget(v) {
+		let lookat = /** @type {VRMLookAt} */(this.modules.lookat);
+		if (lookat) {
+			lookat.target = v;
 		}
-		this._updateBlendShape()
+	}
+	setBlendShapeWeight(name, value) {
+		this._blendShapeUtil.setBlendShapeWeight(name, value);
 	}
 	getBlendShapeWeight(name) {
-		return this._currentShape[name] || 0;
+		return this._blendShapeUtil.getBlendShapeWeight(name);
 	}
 	resetBlendShape() {
-		this._currentShape = {};
-		this._updateBlendShape();
+		this._blendShapeUtil.resetBlendShape();
 	}
 	startBlink(blinkInterval) {
-		if (this.animatedMorph) {
-			return;
-		}
-		this.animatedMorph = {
-			name: 'BLINK',
-			times: [0, blinkInterval - 0.2, blinkInterval - 0.1, blinkInterval],
-			values: [0, 0, 1, 0]
-		};
-		this._updateBlendShape();
+		this._blendShapeUtil.startBlink(blinkInterval);
 	}
 	stopBlink() {
-		this.animatedMorph = null;
-		this._updateBlendShape();
-	}
-	setFirstPerson(firstPerson) {
-		this._annotatedMeshes.forEach(a => {
-			if (a.flag == 'ThirdPersonOnly') {
-				a.mesh.visible = !firstPerson;
-			} else if (a.flag == 'FirstPersonOnly') {
-				a.mesh.visible = firstPerson;
-			} else if (a.flag == 'Auto' && this.firstPersonBone) {
-				if (firstPerson) {
-					this._genFirstPersonMesh(a.mesh);
-				} else {
-					this._resetFirstPersonMesh(a.mesh);
-				}
-			}
-		});
+		this._blendShapeUtil.stopBlink();
 	}
 	getPose(exportMorph) {
 		let poseData = {}
@@ -221,11 +209,162 @@ class VRMAvatar {
 			b.quaternion.set(0, 0, 0, 1);
 		}
 	}
+	setFirstPerson(firstPerson) {
+		if (this._firstPersonMeshUtil) {
+			this._firstPersonMeshUtil.setFirstPerson(firstPerson);
+		}
+	}
+	dispose() {
+		for (let m of Object.keys(this.modules)) {
+			this.removeModule(m);
+		}
+		this.model.traverse((/** @type {THREE.SkinnedMesh} */obj) => {
+			if (obj.isMesh) {
+				obj.geometry.dispose();
+				/** @type {THREE.Material} */(obj.material).dispose();
+				// @ts-ignore
+				obj.material.map && obj.material.map.dispose();
+			}
+			obj.skeleton && obj.skeleton.dispose();
+		});
+	}
+}
+
+class VRMLookAt {
+	/**
+	 * @param {VRMAvatar} avatar 
+	 */
+	constructor(avatar, initCtx) {
+		/** @type {THREE.Bone | null} */
+		this.target = null;
+		this._avatar = avatar;
+
+		this.angleLimit = 60 * Math.PI / 180;
+		this._identQ = new THREE.Quaternion();
+		this._zV = new THREE.Vector3(0, 0, -1);
+		this._tmpQ0 = new THREE.Quaternion();
+		this._tmpV0 = new THREE.Vector3();
+	}
+	update(t) {
+		let target = this.target;
+		if (target == null) {
+			return;
+		}
+		let bone = this._avatar.firstPersonBone;
+		let targetDirection = bone.worldToLocal(this._tmpV0.setFromMatrixPosition(target.matrixWorld)).normalize();
+		let rot = this._tmpQ0.setFromUnitVectors(this._zV, targetDirection);
+		let boneLimit = this.angleLimit;
+		let speedFactor = 0.08;
+		let angle = 2 * Math.acos(rot.w);
+		if (angle > boneLimit * 1.5) {
+			rot = this._identQ;
+			speedFactor = 0.04;
+		} else if (angle > boneLimit) {
+			rot.setFromAxisAngle(this._tmpV0.set(rot.x, rot.y, rot.z).normalize(), boneLimit);
+		}
+		bone.quaternion.slerp(rot, speedFactor);
+	}
+}
+
+class VRMBlendShapeUtil {
+	/**
+	 * @param {VRMAvatar} avatar 
+	 */
+	constructor(avatar) {
+		this._currentShape = {};
+		this._avatar = avatar;
+	}
+	setBlendShapeWeight(name, value) {
+		this._currentShape[name] = value;
+		if (value == 0) {
+			delete this._currentShape[name];
+		}
+		this._updateBlendShape()
+	}
+	getBlendShapeWeight(name) {
+		return this._currentShape[name] || 0;
+	}
+	resetBlendShape() {
+		this._currentShape = {};
+		this._updateBlendShape();
+	}
+	startBlink(blinkInterval) {
+		if (this.animatedMorph) {
+			return;
+		}
+		this.animatedMorph = {
+			name: 'BLINK',
+			times: [0, blinkInterval - 0.2, blinkInterval - 0.1, blinkInterval],
+			values: [0, 0, 1, 0]
+		};
+		this._updateBlendShape();
+	}
+	stopBlink() {
+		this.animatedMorph = null;
+		this._updateBlendShape();
+	}
+
+	_updateBlendShape() {
+		// TODO: refactoring. use THREE.AnimationBlendMode.
+		let addWeights = (data, name, weights) => {
+			let blend = this._avatar.blendShapes[name];
+			blend && blend.binds.forEach(bind => {
+				let tname = bind.target.name;
+				let values = data[tname] || (data[tname] = new Array(bind.target.morphTargetInfluences.length * weights.length).fill(0));
+				for (let t = 0; t < weights.length; t++) {
+					let i = t * bind.target.morphTargetInfluences.length + bind.index;
+					values[i] += Math.max(bind.weight * weights[t], values[i]); // blend func : max
+				}
+			});
+		};
+		let times = [0], trackdata = {};
+		if (this.animatedMorph) {
+			times = this.animatedMorph.times;
+			addWeights(trackdata, this.animatedMorph.name, this.animatedMorph.values);
+		}
+		for (let [name, value] of Object.entries(this._currentShape)) {
+			if (this._avatar.blendShapes[name]) {
+				addWeights(trackdata, name, new Array(times.length).fill(value));
+			}
+		}
+		let tracks = Object.entries(trackdata).map(([tname, values]) =>
+			new THREE.NumberKeyframeTrack(tname + '.morphTargetInfluences', times, values));
+		let nextAction = null;
+		if (tracks.length > 0) {
+			let clip = new THREE.AnimationClip('morph', undefined, tracks);
+			nextAction = this._avatar.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
+		}
+		this.morphAction && this.morphAction.stop();
+		this.morphAction = nextAction;
+	}
+}
+
+class FirstPersonMeshUtil {
+	constructor(avatar, initCtx) {
+		this._firstPersonBone = avatar.firstPersonBone;
+		this._annotatedMeshes =
+			initCtx.vrm.firstPerson.meshAnnotations.map(ma => ({ flag: ma.firstPersonFlag, mesh: initCtx.meshes[ma.mesh] }));
+	}
+	setFirstPerson(firstPerson) {
+		this._annotatedMeshes.forEach(a => {
+			if (a.flag == 'ThirdPersonOnly') {
+				a.mesh.visible = !firstPerson;
+			} else if (a.flag == 'FirstPersonOnly') {
+				a.mesh.visible = firstPerson;
+			} else if (a.flag == 'Auto' && this._firstPersonBone) {
+				if (firstPerson) {
+					this._genFirstPersonMesh(a.mesh);
+				} else {
+					this._resetFirstPersonMesh(a.mesh);
+				}
+			}
+		});
+	}
 	_genFirstPersonMesh(mesh) {
 		mesh.children.forEach(c => this._genFirstPersonMesh(c));
 		if (mesh.isSkinnedMesh) {
 			let firstPersonBones = {};
-			this.firstPersonBone.traverse(b => {
+			this._firstPersonBone.traverse(b => {
 				firstPersonBones[b.uuid] = true;
 			});
 			let skeletonBones = mesh.skeleton.bones;
@@ -263,69 +402,28 @@ class VRMAvatar {
 		mesh.children.forEach(c => this._resetFirstPersonMesh(c));
 		mesh.visible = true;
 	}
-	_updateBlendShape() {
-		// TODO: refactoring. use THREE.AnimationBlendMode.
-		let addWeights = (data, name, weights) => {
-			let blend = this.blendShapes[name];
-			blend && blend.binds.forEach(bind => {
-				let tname = bind.target.name;
-				let values = data[tname] || (data[tname] = new Array(bind.target.morphTargetInfluences.length * weights.length).fill(0));
-				for (let t = 0; t < weights.length; t++) {
-					let i = t * bind.target.morphTargetInfluences.length + bind.index;
-					values[i] += Math.max(bind.weight * weights[t], values[i]); // blend func : max
-				}
-			});
-		};
-		let times = [0], trackdata = {};
-		if (this.animatedMorph) {
-			times = this.animatedMorph.times;
-			addWeights(trackdata, this.animatedMorph.name, this.animatedMorph.values);
-		}
-		for (let [name, value] of Object.entries(this._currentShape)) {
-			if (this.blendShapes[name]) {
-				addWeights(trackdata, name, new Array(times.length).fill(value));
-			}
-		}
-		let tracks = Object.entries(trackdata).map(([tname, values]) =>
-			new THREE.NumberKeyframeTrack(tname + '.morphTargetInfluences', times, values));
-		let nextAction = null;
-		if (tracks.length > 0) {
-			let clip = new THREE.AnimationClip('morph', undefined, tracks);
-			nextAction = this.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
-		}
-		this.morphAction && this.morphAction.stop();
-		this.morphAction = nextAction;
-	}
-	dispose() {
-		for (let m of Object.keys(this.modules)) {
-			this.removeModule(m);
-		}
-		this.physics = null;
-		this.model.traverse((obj) => {
-			if (obj.isMesh) {
-				obj.geometry.dispose();
-				obj.material.dispose();
-				obj.material.map && obj.material.map.dispose();
-			}
-			obj.skeleton && obj.skeleton.dispose();
-		});
-	}
 }
 
 class VRMPhysicsCannonJS {
-	constructor(secondaryAnimation, nodes) {
+	constructor(initctx) {
 		this.collisionGroup = 2;
 		this.binds = [];
 		this.fixedBinds = [];
 		this.bodies = [];
 		this.constraints = [];
+		this.enable = false;
 		this._tmpQ0 = new THREE.Quaternion();
 		this._tmpV0 = new THREE.Vector3();
 		this._tmpV1 = new THREE.Vector3();
 		this.springBoneSystem = this._springBoneSystem();
-		this._init(secondaryAnimation, nodes);
+		this._init(initctx);
 	}
-	_init(secondaryAnimation, nodes) {
+	_init(initctx) {
+		if (!initctx.vrm.secondaryAnimation) {
+			return;
+		}
+		let nodes = initctx.nodes;
+		let secondaryAnimation = initctx.vrm.secondaryAnimation;
 		let allColliderGroupsMask = 0;
 		let colliderMarginFactor = 0.9; // TODO: Remove this.
 		(secondaryAnimation.colliderGroups || []).forEach((cc, i) => {
@@ -338,7 +436,7 @@ class VRMPhysicsCannonJS {
 				allColliderGroupsMask |= body.collisionFilterGroup;
 			}
 		});
-		for (let bg of secondaryAnimation.boneGroups) {
+		for (let bg of secondaryAnimation.boneGroups || []) {
 			let gravity = new CANNON.Vec3().copy(bg.gravityDir || { x: 0, y: -1, z: 0 }).scale(bg.gravityPower || 0);
 			let radius = bg.hitRadius || 0.05;
 			let collisionFilterMask = ~(this.collisionGroup | allColliderGroupsMask);
@@ -350,6 +448,10 @@ class VRMPhysicsCannonJS {
 				root.position.copy(nodes[b].parent.getWorldPosition(this._tmpV0));
 				this.bodies.push(root);
 				this.fixedBinds.push([nodes[b].parent, root]);
+				/**
+				 * @param {CANNON.Body} parentBody 
+				 * @param {THREE.Object3D} node 
+				 */
 				let add = (parentBody, node) => {
 					let c = node.getWorldPosition(this._tmpV0);
 					let wpos = c.clone(); // TODO
@@ -370,13 +472,13 @@ class VRMPhysicsCannonJS {
 						angularDamping: Math.max(bg.dragForce || 0, 0.0001),
 						collisionFilterGroup: this.collisionGroup,
 						collisionFilterMask: collisionFilterMask,
-						position: c,
+						position: new CANNON.Vec3().copy(c),
 					});
 					body.addShape(new CANNON.Sphere(radius));
 					this.bodies.push(body);
 
-					let o = new CANNON.Vec3(0, 0, 0).copy(this._tmpV1.copy(wpos).sub(c));
-					let d = new CANNON.Vec3(0, 0, 0).copy(wpos.sub(parentBody.position));
+					let o = new CANNON.Vec3().copy(this._tmpV1.copy(wpos).sub(c));
+					let d = new CANNON.Vec3().copy(wpos.sub(parentBody.position));
 					let joint = new CANNON.PointToPointConstraint(body, o, parentBody, d);
 					this.constraints.push(joint);
 
@@ -437,6 +539,13 @@ class VRMPhysicsCannonJS {
 		this.bodies.forEach(b => this.world.add(b));
 		this.constraints.forEach(c => this.world.addConstraint(c));
 		this.reset();
+		this.enable = true;
+		// HACK: update collision mask.
+		this.world.bodies.forEach(b => {
+			if (b.collisionFilterGroup == 1 && b.collisionFilterMask == 1) {
+				b.collisionFilterMask = -1;
+			}
+		});
 	}
 	detach() {
 		if (!this.world) {
@@ -446,6 +555,7 @@ class VRMPhysicsCannonJS {
 		this.world.constraints = this.world.constraints.filter(c => !this.constraints.includes(c));
 		this.world.bodies = this.world.bodies.filter(b => !this.bodies.includes(b));
 		this.world = null;
+		this.enable = false;
 	}
 	reset() {
 		this.fixedBinds.forEach(([node, body]) => {
@@ -460,7 +570,7 @@ class VRMPhysicsCannonJS {
 		});
 	}
 	update(timeDelta) {
-		if (!this.world) {
+		if (!this.enable) {
 			return;
 		}
 		this.fixedBinds.forEach(([node, body]) => {
@@ -473,6 +583,9 @@ class VRMPhysicsCannonJS {
 		this.binds.forEach(([node, body]) => {
 			node.quaternion.copy(body.quaternion).premultiply(node.parent.getWorldQuaternion(this._tmpQ0).invert());
 		});
+	}
+	dispose() {
+		this.detach();
 	}
 }
 
@@ -675,8 +788,8 @@ class VMDLoaderWrapper {
 				if (lowerBody.length) {
 					lowerBody.sort((a, b) => a.frameNum - b.frameNum);
 					/**
-					 * @param {*} target 
-					 * @param {*} inv 
+					 * @param {any[]} target 
+					 * @param {boolean} inv 
 					 */
 					let update = (target, inv) => {
 						target.sort((a, b) => a.frameNum - b.frameNum);
@@ -749,6 +862,7 @@ class VMDLoaderWrapper {
 					}
 					let iks = [];
 					for (let config of this.ikConfigs) {
+						// TODO: IK on/off setting from vmd.
 						if (vmd.motions.find(m => m.boneName == config.target) == undefined) {
 							continue;
 						}
@@ -842,7 +956,11 @@ AFRAME.registerComponent('vrm', {
 			return;
 		}
 		try {
-			let avatar = await VRMAvatar.load(url);
+			let moduleSpecs = [];
+			if (globalThis.CANNON) {
+				moduleSpecs.push({ name: 'physics', instantiate: (a, ctx) => new VRMPhysicsCannonJS(ctx) });
+			}
+			let avatar = await VRMAvatar.load(url, moduleSpecs);
 			if (url != this.data.src) {
 				avatar.dispose();
 				return;
@@ -878,27 +996,13 @@ AFRAME.registerComponent('vrm', {
 		}
 		/** @type {VRMPhysicsCannonJS} */
 		let physics = this.avatar.modules.physics;
-		if (data.enablePhysics) {
-			if (physics && physics.world == null) {
+		if (physics) {
+			if (data.enablePhysics && physics.world == null) {
 				let engine = this.el.sceneEl.systems.physics;
 				// @ts-ignore
-				let world = engine && engine.driver && engine.driver.world;
-				if (world) {
-					// HACK: update collision mask.
-					world.bodies.forEach(b => {
-						if (b.collisionFilterGroup == 1 && b.collisionFilterMask == 1) {
-							b.collisionFilterMask = -1;
-						}
-					});
-				}
-				if (physics) {
-					physics.attach(world);
-				}
+				physics.attach(engine && engine.driver && engine.driver.world);
 			}
-		} else {
-			if (physics) {
-				physics.detach();
-			}
+			physics.enable = data.enablePhysics;
 		}
 	}
 });
