@@ -2,16 +2,17 @@
   "name": "@binzume/aframe-vrm",
   "description": "VRM components for A-Frame",
   "version": "0.1.0",
-  "author": "binzume",
+  "type": "module",
+  "main": "dist/aframe-vrm.module.js",
   "files": [
     "README.md"
   ],
-  "main": "vrm.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dist-concat": "npx uglifyjs -b -o dist/aframe-vrm.js -- *.js",
-    "dist-min": "npx uglifyjs --compress pure_getters=true --mangle --mangle-props regex=/^_/ --source-map -o dist/aframe-vrm.min.js -- *.js",
-    "dist": "npm run dist-min && ls -la dist/*.js"
+    "build-module": "npx esbuild src/module-index.js --minify-syntax --sourcemap --bundle --format=esm  --outfile=dist/aframe-vrm.module.js",
+    "build-min": "npx esbuild src/aframe-vrm.js --minify --sourcemap --bundle --format=iife --external:three --outfile=dist/aframe-vrm.min.js",
+    "build-js": "npx esbuild src/aframe-vrm.js --minify-syntax --sourcemap --bundle --format=iife --external:three --outfile=dist/aframe-vrm.js",
+    "build": "npm run build-js & npm run build-min & npm run build-module"
   },
   "publishConfig": {
     "access": "public"
@@ -26,6 +27,10 @@
   },
   "homepage": "https://github.com/binzume/aframe-vrm#readme",
   "devDependencies": {
-    "uglify-es": "^3.3.9"
+    "@types/aframe": "^1.0.3",
+    "@types/cannon": "^0.1.5",
+    "@types/node": "^14.17.3",
+    "@types/three": "^0.129.1",
+    "esbuild": "^0.12.9"
   }
 }
