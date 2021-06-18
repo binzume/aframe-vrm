@@ -23,7 +23,7 @@
 <html>
 <head>
   <script src="https://cdn.jsdelivr.net/gh/aframevr/aframe@v1.0.4/dist/aframe-master.min.js"></script>
-  <script src="https://binzume.github.io/aframe-vrm/vrm.js"></script>
+  <script src="https://binzume.github.io/aframe-vrm/dist/aframe-vrm.js"></script>
 </head>
 <body style="background-color: black; color:white;">
   <a-scene>
@@ -109,7 +109,7 @@ Property:
 
 Methods:
 
-- VRMAvatar.init(gltf) : initialize(async)
+- VRMAvatar.init(gltf, moduleSpecs) : initialize(async)
 - VRMAvatar.setBlendShapeWeight(name, value) : Set blend shape weight for name.
 - VRMAvatar.getBlendShapeWeight(name) : Returns blend shape values.
 - VRMAvatar.resetBlendShape() : Reset all blend shapes.
@@ -120,8 +120,8 @@ Methods:
 - VRMAvatar.tick(timeDelta)
 - VRMAvatar.dispose() : Dispose VRM avatar.
 
-- VRMAvatar.physics.attach(world : CANNON.World) : Start physics.
-- VRMAvatar.physics.detach() : Stop physics.
+- VRMAvatar.modules.physics.attach(world : CANNON.World) : Start physics.
+- VRMAvatar.modules.physics.detach() : Stop physics.
 
 # TODO
 
