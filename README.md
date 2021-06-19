@@ -27,7 +27,7 @@
 </head>
 <body style="background-color: black; color:white;">
   <a-scene>
-    <a-entity vrm="src:assets/AliciaSolid/AliciaSolid.vrm;blink:true" vrm-bvh="" rotation="0 180 0"></a-entity>
+    <a-entity vrm="src:assets/AliciaSolid/AliciaSolid.vrm;blink:true" vrm-anim="" rotation="0 180 0"></a-entity>
     <a-camera position="0 1.6 2"></a-camera>
   </a-scene>
 </body>
@@ -80,7 +80,7 @@ Attributes:
 | color             | color   | green   | box color   |
 | enableConstraints | boolean | true    | Enable bone constraints |
 
-### vrm-bvh
+### vrm-anim
 
 Play bvh/vmd animation.
 
@@ -94,9 +94,26 @@ Attributes:
 
 srcを空にすると待機アニメーションが再生されます(テスト用)．
 
+## Building aframe-vrm
+
+```sh
+cd aframe-vrm
+npm install
+npm run lint
+npm run build
+```
+
 ### VRMAvatar API
 
-See: [vrm.js](vrm.js)
+See: [avatar.ts](src/vrm/avatar.ts)
+
+```js
+import {VRMLoader} from "./dist/aframe-vrm.module.js"
+
+const scene = new THREE.Scene();
+const avatar = await new VRMLoader().load("test.vrm");
+scene.add(avatar.model);
+```
 
 Property:
 
@@ -109,7 +126,9 @@ Property:
 
 Methods:
 
-- VRMAvatar.init(gltf, moduleSpecs) : initialize(async)
+- VRMAvatar.update(timeDelta)
+- VRMAvatar.dispose() : Dispose VRM avatar.
+
 - VRMAvatar.setBlendShapeWeight(name, value) : Set blend shape weight for name.
 - VRMAvatar.getBlendShapeWeight(name) : Returns blend shape values.
 - VRMAvatar.resetBlendShape() : Reset all blend shapes.
@@ -117,8 +136,6 @@ Methods:
 - VRMAvatar.startBlink(intervalSec)
 - VRMAvatar.stopBlink()
 - VRMAvatar.setFirstPerson(firstPerson)
-- VRMAvatar.tick(timeDelta)
-- VRMAvatar.dispose() : Dispose VRM avatar.
 
 - VRMAvatar.modules.physics.attach(world : CANNON.World) : Start physics.
 - VRMAvatar.modules.physics.detach() : Stop physics.

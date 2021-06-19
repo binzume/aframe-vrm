@@ -5,13 +5,14 @@
   "type": "module",
   "main": "dist/aframe-vrm.module.js",
   "files": [
-    "README.md"
+    "dist/"
   ],
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "npx tsc --noEmit --allowJs --moduleResolution node --target ES2019 src/module-index.js src/types.d.ts",
     "build-module": "npx esbuild src/module-index.js --minify-syntax --sourcemap --bundle --format=esm  --outfile=dist/aframe-vrm.module.js",
     "build-min": "npx esbuild src/aframe-vrm.js --minify --sourcemap --bundle --format=iife --external:three --outfile=dist/aframe-vrm.min.js",
-    "build-js": "npx esbuild src/aframe-vrm.js --minify-syntax --sourcemap --bundle --format=iife --external:three --outfile=dist/aframe-vrm.js",
+    "build-js": "npx esbuild src/aframe-vrm.js --target=es2019 --sourcemap --bundle --format=iife --outfile=dist/aframe-vrm.js",
     "build": "npm run build-js & npm run build-min & npm run build-module"
   },
   "publishConfig": {
@@ -31,6 +32,7 @@
     "@types/cannon": "^0.1.5",
     "@types/node": "^14.17.3",
     "@types/three": "^0.129.1",
-    "esbuild": "^0.12.9"
+    "esbuild": "^0.12.9",
+    "typescript": "^4.3.4"
   }
 }

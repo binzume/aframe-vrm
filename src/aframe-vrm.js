@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 import { VRMAvatar, VRMLoader } from "./vrm/avatar";
 import { VRMPhysicsCannonJS } from "./utils/physics-cannon";
 import { IKNode, IKSolver } from "./utils/simpleik";
@@ -95,7 +95,7 @@ AFRAME.registerComponent('vrm', {
     }
 });
 
-AFRAME.registerComponent('vrm-bvh', {
+AFRAME.registerComponent('vrm-anim', {
     schema: {
         src: { default: '' },
         format: { default: '' },

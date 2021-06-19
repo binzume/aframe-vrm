@@ -3,7 +3,7 @@ import { VRMPhysicsCannonJS } from "./utils/physics-cannon";
 import { IKNode, IKSolver } from "./utils/simpleik";
 import { VMDLoaderWrapper } from "./utils/vmd";
 import { BVHLoaderWrapper } from "./utils/bvh";
-import { } from "./aframe-vrm";
+import "./aframe-vrm";
 
 export {
     VRMAvatar,

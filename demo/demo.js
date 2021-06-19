@@ -334,7 +334,7 @@ window.addEventListener('DOMContentLoaded', (ev) => {
     list.setContents(models);
     listEl.addEventListener('clickitem', (ev) => {
         if (!vrmEl.hasAttribute('vrm-poser')) {
-            vrmEl.setAttribute('vrm-bvh', { src: '' });
+            vrmEl.setAttribute('vrm-anim', { src: '' });
         }
         vrmEl.setAttribute('vrm', { src: models[ev.detail.index].src });
     });
@@ -342,7 +342,7 @@ window.addEventListener('DOMContentLoaded', (ev) => {
     let files = motions.map(path => { let m = path.match(/([^\/]+)\.\w+$/); return m ? m[1] : path }).join(',');
     document.getElementById('animation-select').setAttribute('values', files);
     document.getElementById('animation-select').addEventListener('change', (ev) => {
-        vrmEl.setAttribute('vrm-bvh', { src: motions[ev.detail.index], format: '' });
+        vrmEl.setAttribute('vrm-anim', { src: motions[ev.detail.index], format: '' });
     });
 
     document.getElementById('skeleton-toggle').addEventListener('change', (ev) => {
@@ -373,7 +373,7 @@ window.addEventListener('DOMContentLoaded', (ev) => {
     document.getElementById('bone-toggle').addEventListener('change', (ev) => {
         let containerEl = document.querySelector('#bone-buttons');
         if (ev.detail.value) {
-            vrmEl.removeAttribute('vrm-bvh');
+            vrmEl.removeAttribute('vrm-anim');
             vrmEl.setAttribute('vrm-poser', {});
             containerEl.setAttribute('visible', true);
         } else {
@@ -399,7 +399,7 @@ window.addEventListener('DOMContentLoaded', (ev) => {
     });
 
     document.getElementById('stop-animation-button').addEventListener('click', (ev) => {
-        vrmEl.removeAttribute('vrm-bvh');
+        vrmEl.removeAttribute('vrm-anim');
         vrmEl.components.vrm.avatar.restPose();
     });
 
@@ -413,12 +413,12 @@ window.addEventListener('DOMContentLoaded', (ev) => {
             if (namelc.endsWith('.vrm') || namelc.endsWith('.glb')) {
                 let url = URL.createObjectURL(file);
                 vrmEl.removeAttribute('vrm-poser');
-                vrmEl.setAttribute('vrm-bvh', { src: '' });
+                vrmEl.setAttribute('vrm-anim', { src: '' });
                 vrmEl.setAttribute('vrm', { 'src': url });
                 models.push({ name: file.name, src: url });
                 list.setContents(models);
             } else if (namelc.endsWith('.bvh') || namelc.endsWith('.vmd')) {
-                vrmEl.setAttribute('vrm-bvh', { src: URL.createObjectURL(file), format: namelc.endsWith('.bvh') ? 'bvh' : '' });
+                vrmEl.setAttribute('vrm-anim', { src: URL.createObjectURL(file), format: namelc.endsWith('.bvh') ? 'bvh' : '' });
             }
         }
     });
