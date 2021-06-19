@@ -1,20 +1,17 @@
 // src/vrm/lookat.ts
 var VRMLookAt = class {
-  constructor(avatar, initCtx) {
+  constructor(initCtx) {
     this.target = null;
     this.angleLimit = 60 * Math.PI / 180;
     this._identQ = new THREE.Quaternion();
     this._zV = new THREE.Vector3(0, 0, -1);
     this._tmpQ0 = new THREE.Quaternion();
     this._tmpV0 = new THREE.Vector3();
-    this._avatar = avatar;
+    this._bone = initCtx.nodes[initCtx.vrm.firstPerson.firstPersonBone];
   }
   update(t) {
-    let target = this.target;
-    if (target == null)
-      return;
-    let bone = this._avatar.firstPersonBone;
-    if (bone == null)
+    let target = this.target, bone = this._bone;
+    if (target == null || bone == null)
       return;
     let targetDirection = bone.worldToLocal(this._tmpV0.setFromMatrixPosition(target.matrixWorld)).normalize(), rot = this._tmpQ0.setFromUnitVectors(this._zV, targetDirection), boneLimit = this.angleLimit, speedFactor = 0.08, angle = 2 * Math.acos(rot.w);
     angle > boneLimit * 1.5 ? (rot = this._identQ, speedFactor = 0.04) : angle > boneLimit && rot.setFromAxisAngle(this._tmpV0.set(rot.x, rot.y, rot.z).normalize(), boneLimit), bone.quaternion.slerp(rot, speedFactor);
@@ -71,8 +68,8 @@ var VRMBlendShapeUtil = class {
 
 // src/vrm/firstperson.ts
 var FirstPersonMeshUtil = class {
-  constructor(avatar, initCtx) {
-    this._firstPersonBone = avatar.firstPersonBone, this._annotatedMeshes = initCtx.vrm.firstPerson.meshAnnotations.map((ma) => ({ flag: ma.firstPersonFlag, mesh: initCtx.meshes[ma.mesh] }));
+  constructor(initCtx) {
+    this._firstPersonBone = initCtx.nodes[initCtx.vrm.firstPerson.firstPersonBone], this._annotatedMeshes = initCtx.vrm.firstPerson.meshAnnotations.map((ma) => ({ flag: ma.firstPersonFlag, mesh: initCtx.meshes[ma.mesh] }));
   }
   setFirstPerson(firstPerson) {
     this._annotatedMeshes.forEach((a) => {
@@ -105,7 +102,18 @@ var FirstPersonMeshUtil = class {
 };
 
 // src/vrm/avatar.ts
-var VRMAvatar = class {
+var VRMLoader = class {
+  constructor(gltfLoader) {
+    this.gltfLoader = gltfLoader || new THREE.GLTFLoader(THREE.DefaultLoadingManager);
+  }
+  async load(url, moduleSpecs = []) {
+    return new Promise((resolve, reject) => {
+      this.gltfLoader.load(url, async (gltf) => {
+        resolve(await new VRMAvatar(gltf).init(gltf, moduleSpecs));
+      }, void 0, reject);
+    });
+  }
+}, VRMAvatar = class {
   constructor(gltf) {
     this.bones = {};
     this.blendShapes = {};
@@ -123,25 +131,13 @@ var VRMAvatar = class {
     };
     this.model = gltf.scene, this.mixer = new THREE.AnimationMixer(this.model), this.isVRM = (gltf.userData.gltfExtensions || {}).VRM != null, this.animations = gltf.animations || [], this._blendShapeUtil = new VRMBlendShapeUtil(this);
   }
-  static async load(url, moduleSpecs = []) {
-    return new Promise((resolve, reject) => {
-      new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(url, async (gltf) => {
-        resolve(await new VRMAvatar(gltf).init(gltf, moduleSpecs));
-      }, void 0, reject);
-    });
-  }
   async init(gltf, moduleSpecs) {
-    if (!this.isVRM) {
-      if (this.animations.length > 0) {
-        let aa = this.mixer.clipAction(this.animations[0]).setLoop(THREE.LoopOnce, 1).play();
-        aa.clampWhenFinished = !0;
-      }
+    if (!this.isVRM)
       return this;
-    }
     let vrmExt = gltf.userData.gltfExtensions.VRM, bones = this.bones, nodes = await gltf.parser.getDependencies("node"), meshes = await gltf.parser.getDependencies("mesh"), initCtx = { nodes, meshes, vrm: vrmExt, gltf };
     this.meta = vrmExt.meta, Object.values(vrmExt.humanoid.humanBones).forEach((humanBone) => {
       bones[humanBone.bone] = nodes[humanBone.node];
-    }), vrmExt.firstPerson && vrmExt.firstPerson.firstPersonBone && (this.firstPersonBone = nodes[vrmExt.firstPerson.firstPersonBone], this.modules.lookat = new VRMLookAt(this, initCtx)), vrmExt.firstPerson && vrmExt.firstPerson.meshAnnotations && (this._firstPersonMeshUtil = new FirstPersonMeshUtil(this, initCtx)), this.model.skeleton = new THREE.Skeleton(Object.values(bones)), this._fixBoundingBox(), vrmExt.blendShapeMaster && this._initBlendShapes(initCtx);
+    }), vrmExt.firstPerson && (vrmExt.firstPerson.firstPersonBone && (this.firstPersonBone = nodes[vrmExt.firstPerson.firstPersonBone], this.modules.lookat = new VRMLookAt(initCtx)), vrmExt.firstPerson.meshAnnotations && (this._firstPersonMeshUtil = new FirstPersonMeshUtil(initCtx))), this.model.skeleton = new THREE.Skeleton(Object.values(bones)), this._fixBoundingBox(), vrmExt.blendShapeMaster && this._initBlendShapes(initCtx);
     for (let spec of moduleSpecs) {
       let mod = spec.instantiate(this, initCtx);
       mod && (this.modules[spec.name] = mod);
@@ -170,7 +166,7 @@ var VRMAvatar = class {
       }
     });
   }
-  tick(timeDelta) {
+  update(timeDelta) {
     this.mixer.update(timeDelta);
     for (let m of Object.values(this.modules))
       m.update(timeDelta);
@@ -618,7 +614,7 @@ AFRAME.registerComponent("vrm", {
       this.pause();
       return;
     }
-    this.avatar.tick(timeDelta / 1e3);
+    this.avatar.update(timeDelta / 1e3);
   },
   remove() {
     this.avatar && (this.el.removeObject3D("avatar"), this.avatar.dispose());
@@ -629,7 +625,7 @@ AFRAME.registerComponent("vrm", {
       try {
         let moduleSpecs = [];
         globalThis.CANNON && moduleSpecs.push({ name: "physics", instantiate: (a, ctx) => new VRMPhysicsCannonJS(ctx) });
-        let avatar = await VRMAvatar.load(url, moduleSpecs);
+        let avatar = await new VRMLoader().load(url, moduleSpecs);
         if (url != this.data.src) {
           avatar.dispose();
           return;
@@ -654,7 +650,7 @@ AFRAME.registerComponent("vrm", {
     }
   }
 });
-AFRAME.registerComponent("vrm-bvh", {
+AFRAME.registerComponent("vrm-anim", {
   schema: {
     src: { default: "" },
     format: { default: "" },
@@ -664,7 +660,7 @@ AFRAME.registerComponent("vrm-bvh", {
   },
   init() {
     this.avatar = null, this.el.components.vrm && this.el.components.vrm.avatar && (this.avatar = this.el.components.vrm.avatar), this.onVrmLoaded = (ev) => {
-      this.avatar = ev.detail.avatar, this.data.src != "" ? this._loadClip(this.data.src) : this.avatar.animations.length || this.playTestMotion();
+      this.avatar = ev.detail.avatar, this.data.src != "" ? this._loadClip(this.data.src) : this.avatar.animations.length > 0 ? this.playClip(this.avatar.animations[0]) : this.playTestMotion();
     }, this.el.addEventListener("model-loaded", this.onVrmLoaded);
   },
   update(oldData) {
@@ -674,10 +670,10 @@ AFRAME.registerComponent("vrm-bvh", {
     if (this.stopAnimation(), this.avatar.restPose(), url === "")
       return;
     let loop = this.data.loop ? THREE.LoopRepeat : THREE.LoopOnce, clip = await ((this.data.format || (url.toLowerCase().endsWith(".bvh") ? "bvh" : "")) == "bvh" ? new BVHLoaderWrapper() : new VMDLoaderWrapper()).load(url, this.avatar, this.data);
-    !this.avatar || (this.clip = clip, this.avatar.mixer.setTime(0), this.animation = this.avatar.mixer.clipAction(clip).setLoop(loop).setEffectiveWeight(1).play());
+    !this.avatar || this.playClip(clip);
   },
   stopAnimation() {
-    this.animation && (this.animation.stop(), this.avatar.mixer.uncacheClip(this.clip), this.avatar.removeModule("MMDIK"));
+    this.animation && (this.animation.stop(), this.avatar.mixer.uncacheClip(this.clip), this.avatar.removeModule("MMDIK"), this.animation = null);
   },
   playTestMotion() {
     let q = (x, y, z) => new THREE.Quaternion().setFromEuler(new THREE.Euler(x * Math.PI / 180, y * Math.PI / 180, z * Math.PI / 180)), tracks = {
@@ -708,7 +704,11 @@ AFRAME.registerComponent("vrm-bvh", {
       name: "testAnimation",
       hierarchy: Object.values(tracks)
     }, Object.keys(tracks).map((k) => this.avatar.bones[k] || { name: k }));
-    this.clip = clip, this.animation = this.avatar.mixer.clipAction(clip).setEffectiveWeight(1).play();
+    this.playClip(clip);
+  },
+  playClip(clip) {
+    let loop = this.data.loop ? THREE.LoopRepeat : THREE.LoopOnce;
+    this.stopAnimation(), this.clip = clip, this.avatar.mixer.setTime(0), this.animation = this.avatar.mixer.clipAction(clip).setLoop(loop).setEffectiveWeight(1).play(), this.animation.clampWhenFinished = !0;
   },
   remove() {
     this.el.removeEventListener("model-loaded", this.onVrmLoaded), this.stopAnimation(), this.avatar = null;
