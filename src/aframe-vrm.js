@@ -1,5 +1,5 @@
 // @ts-check
-import { VRMAvatar } from "./vrm/avatar";
+import { VRMAvatar, VRMLoader } from "./vrm/avatar";
 import { VRMPhysicsCannonJS } from "./utils/physics-cannon";
 import { IKNode, IKSolver } from "./utils/simpleik";
 import { VMDLoaderWrapper } from "./utils/vmd";
@@ -29,7 +29,7 @@ AFRAME.registerComponent('vrm', {
             this.pause();
             return;
         }
-        this.avatar.tick(timeDelta / 1000);
+        this.avatar.update(timeDelta / 1000);
     },
     remove() {
         if (this.avatar) {
@@ -48,7 +48,7 @@ AFRAME.registerComponent('vrm', {
             if (globalThis.CANNON) {
                 moduleSpecs.push({ name: 'physics', instantiate: (a, ctx) => new VRMPhysicsCannonJS(ctx) });
             }
-            let avatar = await VRMAvatar.load(url, moduleSpecs);
+            let avatar = await new VRMLoader().load(url, moduleSpecs);
             if (url != this.data.src) {
                 avatar.dispose();
                 return;
@@ -113,7 +113,9 @@ AFRAME.registerComponent('vrm-bvh', {
             this.avatar = ev.detail.avatar;
             if (this.data.src != '') {
                 this._loadClip(this.data.src);
-            } else if (!this.avatar.animations.length) {
+            } else if (this.avatar.animations.length > 0) {
+                this.playClip(this.avatar.animations[0]);
+            } else {
                 this.playTestMotion();
             }
         };
@@ -142,15 +144,14 @@ AFRAME.registerComponent('vrm-bvh', {
         if (!this.avatar) {
             return;
         }
-        this.clip = clip;
-        this.avatar.mixer.setTime(0);
-        this.animation = this.avatar.mixer.clipAction(clip).setLoop(loop).setEffectiveWeight(1.0).play();
+        this.playClip(clip);
     },
     stopAnimation() {
         if (this.animation) {
             this.animation.stop();
             this.avatar.mixer.uncacheClip(this.clip);
             this.avatar.removeModule('MMDIK');
+            this.animation = null;
         }
     },
     playTestMotion() {
@@ -187,8 +188,15 @@ AFRAME.registerComponent('vrm-bvh', {
             },
             Object.keys(tracks).map(k => this.avatar.bones[k] || { name: k })
         );
+        this.playClip(clip);
+    },
+    playClip(clip) {
+        let loop = this.data.loop ? THREE.LoopRepeat : THREE.LoopOnce;
+        this.stopAnimation();
         this.clip = clip;
-        this.animation = this.avatar.mixer.clipAction(clip).setEffectiveWeight(1.0).play();
+        this.avatar.mixer.setTime(0);
+        this.animation = this.avatar.mixer.clipAction(clip).setLoop(loop).setEffectiveWeight(1.0).play();
+        this.animation.clampWhenFinished = true;
     },
     remove() {
         this.el.removeEventListener('model-loaded', this.onVrmLoaded);

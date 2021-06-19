@@ -1,22 +1,40 @@
 import { VRMLookAt } from "./lookat"
 import { VRMBlendShapeUtil } from "./blendshape"
 import { FirstPersonMeshUtil } from "./firstperson"
+import { GLTFLoader, GLTF } from "three/examples/jsm/loaders/GLTFLoader" // type only
+
+export type PoseData = { bones: any[], blendShape?: any[] }
+export class VRMLoader {
+    private readonly gltfLoader: GLTFLoader;
+    constructor(gltfLoader?: any) {
+        // @ts-ignore
+        this.gltfLoader = gltfLoader || new THREE.GLTFLoader(THREE.DefaultLoadingManager);
+    }
+    public async load(url: string, moduleSpecs: ModuleSpec[] = []): Promise<VRMAvatar> {
+        return new Promise((resolve, reject) => {
+            this.gltfLoader.load(url, async (gltf) => {
+                resolve(await new VRMAvatar(gltf).init(gltf, moduleSpecs));
+            }, undefined, reject);
+        });
+    }
+}
 
 export class VRMAvatar {
-    model: THREE.Object3D;
-    mixer: THREE.AnimationMixer;
-    bones: Record<string, THREE.Bone> = {};
-    blendShapes: Record<string, { name: string, binds: Record<string, any>[] }> = {};
-    modules: Record<string, VRMModule> = {};
-    meta: Record<string, any> = {};
-    isVRM: boolean;
-    animations: THREE.AnimationClip[];
-    firstPersonBone: THREE.Bone | null = null;
+    public readonly model: THREE.Object3D & { skeleton?: THREE.Skeleton };
+    public readonly mixer: THREE.AnimationMixer;
+    public readonly bones: Record<string, THREE.Bone> = {};
+    public blendShapes: Record<string, { name: string, binds: Record<string, any>[] }> = {};
+    public readonly modules: Record<string, VRMModule> = {};
+    public meta: Record<string, any> = {};
+    public readonly isVRM: boolean;
+    public readonly animations: THREE.AnimationClip[];
+    public firstPersonBone: THREE.Bone | null = null;
 
-    _firstPersonMeshUtil: FirstPersonMeshUtil | null = null;
-    _blendShapeUtil: VRMBlendShapeUtil;
+    private _firstPersonMeshUtil: FirstPersonMeshUtil | null = null;
+    private _blendShapeUtil: VRMBlendShapeUtil;
 
-    boneConstraints = {
+    // TODO: move to another component.
+    public boneConstraints = {
         'head': { type: 'ball', limit: 60 * Math.PI / 180, twistAxis: new THREE.Vector3(0, 1, 0), twistLimit: 60 * Math.PI / 180 },
         'neck': { type: 'ball', limit: 30 * Math.PI / 180, twistAxis: new THREE.Vector3(0, 1, 0), twistLimit: 10 * Math.PI / 180 },
         'leftUpperLeg': { type: 'ball', limit: 170 * Math.PI / 180, twistAxis: new THREE.Vector3(0, -1, 0), twistLimit: Math.PI / 2 },
@@ -25,7 +43,7 @@ export class VRMAvatar {
         'rightLowerLeg': { type: 'hinge', axis: new THREE.Vector3(1, 0, 0), min: -170 * Math.PI / 180, max: 0 * Math.PI / 180 }
     };
 
-    constructor(gltf: Record<string, any>) {
+    constructor(gltf: GLTF) {
         this.model = gltf.scene;
         this.mixer = new THREE.AnimationMixer(this.model);
         this.isVRM = (gltf.userData.gltfExtensions || {}).VRM != null;
@@ -33,22 +51,8 @@ export class VRMAvatar {
         this._blendShapeUtil = new VRMBlendShapeUtil(this);
     }
 
-    static async load(url: string, moduleSpecs: ModuleSpec[] = []) {
-        return new Promise((resolve, reject) => {
-            // @ts-ignore
-            new THREE.GLTFLoader(THREE.DefaultLoadingManager).load(url, async (gltf) => {
-                resolve(await new VRMAvatar(gltf).init(gltf, moduleSpecs));
-            }, undefined, reject);
-        });
-    }
-
-    async init(gltf: Record<string, any>, moduleSpecs: ModuleSpec[]) {
+    public async init(gltf: GLTF, moduleSpecs: ModuleSpec[]) {
         if (!this.isVRM) {
-            // animation test
-            if (this.animations.length > 0) {
-                let aa = this.mixer.clipAction(this.animations[0]).setLoop(THREE.LoopOnce, 1).play();
-                aa.clampWhenFinished = true;
-            }
             return this;
         }
         let vrmExt = gltf.userData.gltfExtensions.VRM as VRMExtension;
@@ -61,14 +65,15 @@ export class VRMAvatar {
         Object.values(vrmExt.humanoid.humanBones).forEach((humanBone) => {
             bones[humanBone.bone] = nodes[humanBone.node];
         });
-        if (vrmExt.firstPerson && vrmExt.firstPerson.firstPersonBone) {
-            this.firstPersonBone = nodes[vrmExt.firstPerson.firstPersonBone];
-            this.modules.lookat = new VRMLookAt(this, initCtx);
+        if (vrmExt.firstPerson) {
+            if (vrmExt.firstPerson.firstPersonBone) {
+                this.firstPersonBone = nodes[vrmExt.firstPerson.firstPersonBone];
+                this.modules.lookat = new VRMLookAt(initCtx);
+            }
+            if (vrmExt.firstPerson.meshAnnotations) {
+                this._firstPersonMeshUtil = new FirstPersonMeshUtil(initCtx);
+            }
         }
-        if (vrmExt.firstPerson && vrmExt.firstPerson.meshAnnotations) {
-            this._firstPersonMeshUtil = new FirstPersonMeshUtil(this, initCtx);
-        }
-        // @ts-ignore
         this.model.skeleton = new THREE.Skeleton(Object.values(bones));
         this._fixBoundingBox();
         if (vrmExt.blendShapeMaster) {
@@ -83,7 +88,7 @@ export class VRMAvatar {
         }
         return this;
     }
-    _initBlendShapes(ctx: InitCtx) {
+    private _initBlendShapes(ctx: InitCtx): void {
         this.blendShapes = (ctx.vrm.blendShapeMaster.blendShapeGroups || []).reduce((blendShapes: Record<string, any>, bg) => {
             let binds = bg.binds.flatMap(bind => {
                 let meshObj = ctx.meshes[bind.mesh];
@@ -94,7 +99,7 @@ export class VRMAvatar {
             return blendShapes;
         }, {});
     }
-    _fixBoundingBox() {
+    private _fixBoundingBox(): void {
         let bones = this.bones;
         if (!bones.hips) {
             return;
@@ -114,22 +119,22 @@ export class VRMAvatar {
             }
         });
     }
-    tick(timeDelta: number) {
+    public update(timeDelta: number): void {
         this.mixer.update(timeDelta);
         for (let m of Object.values(this.modules)) {
             m.update(timeDelta);
         }
     }
-    setModule(name: string, module: VRMModule) {
+    public setModule(name: string, module: VRMModule): void {
         this.removeModule(name);
         this.modules[name] = module;
     }
-    removeModule(name: string) {
+    public removeModule(name: string): void {
         let module = this.modules[name];
         module && module.dispose && module.dispose();
         delete this.modules[name];
     }
-    dispose() {
+    public dispose(): void {
         for (let m of Object.keys(this.modules)) {
             this.removeModule(m);
         }
@@ -145,33 +150,33 @@ export class VRMAvatar {
     }
 
     // Util functions.
-    get lookAtTarget() {
+    get lookAtTarget(): THREE.Object3D | null {
         let lookat = this.modules.lookat as VRMLookAt | null;
         return lookat ? lookat.target : null;
     }
-    set lookAtTarget(v) {
+    set lookAtTarget(v: THREE.Object3D) {
         let lookat = this.modules.lookat as VRMLookAt | null;
         if (lookat) {
             lookat.target = v;
         }
     }
-    setBlendShapeWeight(name: string, value: number) {
+    public setBlendShapeWeight(name: string, value: number): void {
         this._blendShapeUtil.setBlendShapeWeight(name, value);
     }
-    getBlendShapeWeight(name: string) {
+    public getBlendShapeWeight(name: string): number {
         return this._blendShapeUtil.getBlendShapeWeight(name);
     }
-    resetBlendShape() {
+    public resetBlendShape(): void {
         this._blendShapeUtil.resetBlendShape();
     }
-    startBlink(blinkInterval: number) {
+    public startBlink(blinkInterval: number): void {
         this._blendShapeUtil.startBlink(blinkInterval);
     }
-    stopBlink() {
+    public stopBlink(): void {
         this._blendShapeUtil.stopBlink();
     }
-    getPose(exportMorph: boolean) {
-        let poseData: { bones: any[], blendShape?: any[] } = {
+    public getPose(exportMorph: boolean): PoseData {
+        let poseData: PoseData = {
             bones: Object.keys(this.bones).map((name) =>
                 ({ name: name, q: this.bones[name].quaternion.toArray() })
             )
@@ -183,7 +188,7 @@ export class VRMAvatar {
         }
         return poseData
     }
-    setPose(pose: { bones: any[], blendShape: any[] }) {
+    public setPose(pose: PoseData): void {
         if (pose.bones) {
             for (let boneParam of pose.bones) {
                 if (this.bones[boneParam.name]) {
@@ -197,12 +202,12 @@ export class VRMAvatar {
             }
         }
     }
-    restPose() {
+    public restPose(): void {
         for (let b of Object.values(this.bones)) {
             b.quaternion.set(0, 0, 0, 1);
         }
     }
-    setFirstPerson(firstPerson: boolean) {
+    public setFirstPerson(firstPerson: boolean): void {
         if (this._firstPersonMeshUtil) {
             this._firstPersonMeshUtil.setFirstPerson(firstPerson);
         }

@@ -1,24 +1,20 @@
-import { VRMAvatar } from "./avatar" // TODO: remove circular dependency
+export class VRMLookAt implements VRMModule {
+    public target: THREE.Object3D | null = null;
+    public angleLimit: number = 60 * Math.PI / 180;
+    private readonly _bone: THREE.Object3D;
+    private readonly _identQ = new THREE.Quaternion();
+    private readonly _zV = new THREE.Vector3(0, 0, -1);
+    private readonly _tmpQ0 = new THREE.Quaternion();
+    private readonly _tmpV0 = new THREE.Vector3();
 
-export class VRMLookAt {
-    target: THREE.Bone | null = null;
-    angleLimit: number = 60 * Math.PI / 180;
-    _avatar: VRMAvatar;
-    _identQ = new THREE.Quaternion();
-    _zV = new THREE.Vector3(0, 0, -1);
-    _tmpQ0 = new THREE.Quaternion();
-    _tmpV0 = new THREE.Vector3();
-
-    constructor(avatar: VRMAvatar, initCtx: InitCtx) {
-        this._avatar = avatar;
+    constructor(initCtx: InitCtx) {
+        this._bone = initCtx.nodes[initCtx.vrm.firstPerson.firstPersonBone];
     }
-    update(t: number) {
+
+    public update(t: number): void {
         let target = this.target;
-        if (target == null) {
-            return;
-        }
-        let bone = this._avatar.firstPersonBone;
-        if (bone == null) {
+        let bone = this._bone;
+        if (target == null || bone == null) {
             return;
         }
         let targetDirection = bone.worldToLocal(this._tmpV0.setFromMatrixPosition(target.matrixWorld)).normalize();

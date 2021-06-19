@@ -1,7 +1,7 @@
 import { VRMAvatar } from '../vrm/avatar';
 
 export class BVHLoaderWrapper {
-    async load(url: string, avatar: VRMAvatar, options: any) {
+    public async load(url: string, avatar: VRMAvatar, options: any): Promise<THREE.AnimationClip> {
         /** @ts-ignore */
         let { BVHLoader } = await import('https://threejs.org/examples/jsm/loaders/BVHLoader.js');
         return await new Promise((resolve, reject) => {
@@ -15,7 +15,7 @@ export class BVHLoaderWrapper {
         });
     }
 
-    convertBoneName(name: string): string {
+    protected convertBoneName(name: string): string {
         name = name.replace('Spin1', 'Spin');
         name = name.replace('Chest1', 'Chest');
         name = name.replace('Chest2', 'UpperChest');
@@ -35,7 +35,7 @@ export class BVHLoaderWrapper {
         return name.charAt(0).toLowerCase() + name.slice(1);
     }
 
-    fixTrackName(clip: THREE.AnimationClip, avatar: VRMAvatar) {
+    protected fixTrackName(clip: THREE.AnimationClip, avatar: VRMAvatar): void {
         clip.tracks.forEach(t => {
             // '.bones[Chest].quaternion'
             t.name = t.name.replace(/bones\[(\w+)\]/, (m, name) => {

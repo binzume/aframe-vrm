@@ -1,9 +1,10 @@
-import { THREE } from "three"
+import "three"
+import "cannon"
 import { } from "aframe"
 
 
-interface VecXYZ { x: number, y: number, z: number };
-interface VecXYZW { x: number, y: number, z: number, w: number };
+interface VecXYZ { x: number, y: number, z: number }
+interface VecXYZW { x: number, y: number, z: number, w: number }
 
 declare module "cannon" {
     export interface Vec3 {
@@ -23,10 +24,11 @@ declare module "three" {
     export interface Quaternion {
         copy(v: VecXYZW): Quaternion;
     }
+    // export { GLTFLoader }
 }
 
 declare global {
-    const THREE: THREE;
+    const THREE: typeof THREE;
 
     type VRMExtension = {
         meta: Record<string, any>,
@@ -38,8 +40,7 @@ declare global {
         secondaryAnimation: { colliderGroups: any[], boneGroups: any[] },
     };
 
-
-    type InitCtx = { [key: string]: any, vrm: VRMExtension, meshes: THREE.SkinnedMesh[] };
+    type InitCtx = { [key: string]: any, vrm: VRMExtension, meshes: THREE.SkinnedMesh[], nodes: THREE.Object3D[] };
 
     interface VRMModule {
         update(timeDelta: number): void;
@@ -48,6 +49,6 @@ declare global {
 
     interface ModuleSpec {
         name: string;
-        instantiate: (avatar: any, initCtx: InitCtx) => VRMModule;
+        instantiate: (avatar: import('./vrm/avatar').VRMAvatar, initCtx: InitCtx) => VRMModule;
     }
 }

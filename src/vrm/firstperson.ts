@@ -1,14 +1,13 @@
-import { VRMAvatar } from "./avatar" // TODO: remove circular dependency
 
 export class FirstPersonMeshUtil {
-    _firstPersonBone: THREE.Bone;
-    _annotatedMeshes: { flag: string, mesh: THREE.SkinnedMesh }[]
-    constructor(avatar: VRMAvatar, initCtx: InitCtx) {
-        this._firstPersonBone = avatar.firstPersonBone!;
+    private readonly _firstPersonBone: THREE.Bone;
+    private readonly _annotatedMeshes: { flag: string, mesh: THREE.SkinnedMesh }[]
+    constructor(initCtx: InitCtx) {
+        this._firstPersonBone = initCtx.nodes[initCtx.vrm.firstPerson.firstPersonBone] as THREE.Bone;
         this._annotatedMeshes =
             initCtx.vrm.firstPerson.meshAnnotations.map(ma => ({ flag: ma.firstPersonFlag, mesh: initCtx.meshes[ma.mesh] }));
     }
-    setFirstPerson(firstPerson: boolean) {
+    public setFirstPerson(firstPerson: boolean): void {
         this._annotatedMeshes.forEach(a => {
             if (a.flag == 'ThirdPersonOnly') {
                 a.mesh.visible = !firstPerson;
@@ -23,7 +22,7 @@ export class FirstPersonMeshUtil {
             }
         });
     }
-    _genFirstPersonMesh(mesh: THREE.SkinnedMesh) {
+    private _genFirstPersonMesh(mesh: THREE.SkinnedMesh): void {
         mesh.children.forEach(c => this._genFirstPersonMesh(c as THREE.SkinnedMesh));
         if (!mesh.isSkinnedMesh) {
             return;
@@ -62,7 +61,7 @@ export class FirstPersonMeshUtil {
         }
         // TODO: erase triangle.
     }
-    _resetFirstPersonMesh(mesh: THREE.SkinnedMesh) {
+    private _resetFirstPersonMesh(mesh: THREE.SkinnedMesh): void {
         mesh.children.forEach(c => this._resetFirstPersonMesh(c as THREE.SkinnedMesh));
         mesh.visible = true;
     }

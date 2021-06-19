@@ -67,3 +67,12 @@ export class IKSolver {
         return endPosition.distanceToSquared(target) < startDistance;
     }
 }
+
+
+export class SimpleIK {
+    solver = new IKSolver();
+    chains: any[];
+    update(t : number) {
+
+    }
+}

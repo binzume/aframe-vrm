@@ -1,16 +1,16 @@
 import { VRMAvatar } from "./avatar" // TODO: remove circular dependency
 
 export class VRMBlendShapeUtil {
-    _avatar: VRMAvatar;
-    _currentShape: any = {};
-    animatedMorph: any;
-    morphAction: any;
+    private readonly _avatar: VRMAvatar;
+    private _currentShape: any = {};
+    private animatedMorph: any;
+    private morphAction: any;
 
     constructor(avatar: VRMAvatar) {
         this._avatar = avatar;
     }
 
-    setBlendShapeWeight(name: string, value: number) {
+    public setBlendShapeWeight(name: string, value: number): void {
         this._currentShape[name] = value;
         if (value == 0) {
             delete this._currentShape[name];
@@ -18,16 +18,16 @@ export class VRMBlendShapeUtil {
         this._updateBlendShape()
     }
 
-    getBlendShapeWeight(name: string) {
+    public getBlendShapeWeight(name: string): number {
         return this._currentShape[name] || 0;
     }
 
-    resetBlendShape() {
+    public resetBlendShape() {
         this._currentShape = {};
         this._updateBlendShape();
     }
 
-    startBlink(blinkInterval: number) {
+    public startBlink(blinkInterval: number): void {
         if (this.animatedMorph) {
             return;
         }
@@ -39,12 +39,12 @@ export class VRMBlendShapeUtil {
         this._updateBlendShape();
     }
 
-    stopBlink() {
+    public stopBlink(): void {
         this.animatedMorph = null;
         this._updateBlendShape();
     }
 
-    _updateBlendShape() {
+    private _updateBlendShape(): void {
         // TODO: refactoring. use THREE.AnimationBlendMode.
         let addWeights = (data: Record<string, any>, name: string, weights: number[]) => {
             let blend = this._avatar.blendShapes[name];

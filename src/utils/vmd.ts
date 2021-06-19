@@ -81,7 +81,7 @@ export class VMDLoaderWrapper {
         'rightUpperLeg': { min: new THREE.Vector3(-Math.PI / 2, -Math.PI / 2, -Math.PI / 2), max: new THREE.Vector3(Math.PI, Math.PI / 2, Math.PI / 2) },
     };
 
-    async load(url: string, vrm: VRMAvatar, options: any) {
+    async load(url: string, vrm: VRMAvatar, options: any): Promise<THREE.AnimationClip> {
         /** @ts-ignore */
         let { MMDLoader } = await import('https://threejs.org/examples/jsm/loaders/MMDLoader.js');
         /** @ts-ignore */

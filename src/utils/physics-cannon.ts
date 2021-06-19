@@ -1,4 +1,3 @@
-
 export class VRMPhysicsCannonJS implements VRMModule {
     collisionGroup = 2;
     enable = false;
@@ -6,9 +5,9 @@ export class VRMPhysicsCannonJS implements VRMModule {
     fixedBinds: [THREE.Object3D, CANNON.Body][] = [];
     bodies: CANNON.Body[] = [];
     constraints: any[] = [];
-    _tmpQ0 = new THREE.Quaternion();
-    _tmpV0 = new THREE.Vector3();
-    _tmpV1 = new THREE.Vector3();
+    private readonly _tmpQ0 = new THREE.Quaternion();
+    private readonly _tmpV0 = new THREE.Vector3();
+    private readonly _tmpV1 = new THREE.Vector3();
     springBoneSystem: any;
     world: CANNON.World | null = null;
     internalWorld: boolean = false;
@@ -16,7 +15,7 @@ export class VRMPhysicsCannonJS implements VRMModule {
         this.springBoneSystem = this._springBoneSystem();
         this._init(initctx);
     }
-    _init(initctx: InitCtx) {
+    private _init(initctx: InitCtx): void {
         if (!initctx.vrm.secondaryAnimation) {
             return;
         }
@@ -84,7 +83,7 @@ export class VRMPhysicsCannonJS implements VRMModule {
             }
         }
     }
-    _springBoneSystem() {
+    private _springBoneSystem() {
         let _q0 = new CANNON.Quaternion();
         let _q1 = new CANNON.Quaternion();
         let _v0 = new CANNON.Vec3();
@@ -124,7 +123,7 @@ export class VRMPhysicsCannonJS implements VRMModule {
             }
         };
     }
-    attach(world: CANNON.World | null) {
+    public attach(world: CANNON.World | null): void {
         this.detach();
         this.internalWorld = world == null;
         this.world = world || new CANNON.World();
@@ -141,7 +140,7 @@ export class VRMPhysicsCannonJS implements VRMModule {
             }
         });
     }
-    detach() {
+    public detach(): void {
         if (!this.world) {
             return;
         }
@@ -151,7 +150,7 @@ export class VRMPhysicsCannonJS implements VRMModule {
         this.world = null;
         this.enable = false;
     }
-    reset() {
+    public reset(): void {
         this.fixedBinds.forEach(([node, body]) => {
             node.updateWorldMatrix(true, false);
             body.position.copy(node.getWorldPosition(this._tmpV0));
@@ -163,7 +162,7 @@ export class VRMPhysicsCannonJS implements VRMModule {
             body.quaternion.copy(node.getWorldQuaternion(this._tmpQ0));
         });
     }
-    update(timeDelta: number) {
+    public update(timeDelta: number): void {
         if (!this.enable) {
             return;
         }
@@ -178,7 +177,7 @@ export class VRMPhysicsCannonJS implements VRMModule {
             node.quaternion.copy(body.quaternion).premultiply(node.parent!.getWorldQuaternion(this._tmpQ0).invert());
         });
     }
-    dispose() {
+    public dispose(): void {
         this.detach();
     }
 }
