@@ -1,7 +1,7 @@
 {
   "name": "@binzume/aframe-vrm",
   "description": "VRM components for A-Frame",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "main": "dist/aframe-vrm.module.js",
   "files": [
