@@ -281,7 +281,9 @@ var VRMPhysicsCannonJS = class {
           });
           body.addShape(new CANNON.Sphere(radius)), this.bodies.push(body);
           let o = new CANNON.Vec3().copy(this._tmpV1.copy(wpos).sub(c)), d = new CANNON.Vec3().copy(wpos.sub(parentBody.position)), joint = new CANNON.PointToPointConstraint(body, o, parentBody, d);
-          this.constraints.push(joint), this.binds.push([node, body]), this.springBoneSystem.objects.push({ body, parentBody, force: gravity, boneGroup: bg, size: radius }), node.children.forEach((n2) => n2.isBone && add(body, n2));
+          this.constraints.push(joint);
+          let l = body.position.distanceTo(parentBody.position);
+          this.binds.push([node, body]), this.springBoneSystem.objects.push({ body, parentBody, force: gravity, boneGroup: bg, size: radius, distanceToParent: l }), node.children.forEach((n2) => n2.isBone && add(body, n2));
         };
         add(root, nodes[b]);
       }
@@ -293,16 +295,18 @@ var VRMPhysicsCannonJS = class {
       world: null,
       objects: [],
       update() {
-        let g = this.world.gravity, dt = this.world.dt, avlimit = 0.1;
+        let g = this.world.gravity, dt = this.world.dt, avlimit = 0.1, stiffnessScale = 1600;
         for (let b of this.objects) {
           let body = b.body, parent = b.parentBody, f = body.force, m = body.mass, g2 = b.force;
           f.x += m * (-g.x + g2.x), f.y += m * (-g.y + g2.y), f.z += m * (-g.z + g2.z);
+          let d = body.position.distanceTo(parent.position);
+          Math.abs(d - b.distanceToParent) > 0.01 && d > 0 && parent.position.lerp(body.position, b.distanceToParent / d, body.position);
           let av = body.angularVelocity.length();
           av > avlimit && body.angularVelocity.scale(avlimit / av, body.angularVelocity);
-          let stiffness = b.boneGroup.stiffiness, approxInertia = b.size * b.size * m * 1600, rot = body.quaternion.mult(parent.quaternion.inverse(_q0), _q1), [axis, angle] = rot.toAxisAngle(_v0);
+          let approxInertia = b.size * b.size * m, rot = body.quaternion.mult(parent.quaternion.inverse(_q0), _q1), [axis, angle] = rot.toAxisAngle(_v0);
           angle = angle - Math.PI * 2 * Math.floor((angle + Math.PI) / (Math.PI * 2));
-          let tf = angle * stiffness;
-          Math.abs(tf) > Math.abs(angle / dt / dt * 25e-5) && (tf = angle / dt / dt * 25e-5);
+          let tf = angle * b.boneGroup.stiffiness * stiffnessScale;
+          Math.abs(tf) > Math.abs(angle / dt / dt * 0.5) && (tf = angle / dt / dt * 0.5);
           let af = axis.scale(-tf * approxInertia, axis);
           body.torque.vadd(af, body.torque);
         }

@@ -13,7 +13,7 @@
     "build-module": "npx esbuild src/module-index.js --minify-syntax --sourcemap --bundle --format=esm  --outfile=dist/aframe-vrm.module.js",
     "build-min": "npx esbuild src/aframe-vrm.js --minify --sourcemap --bundle --format=iife --external:three --outfile=dist/aframe-vrm.min.js",
     "build-js": "npx esbuild src/aframe-vrm.js --target=es2019 --sourcemap --bundle --format=iife --outfile=dist/aframe-vrm.js",
-    "build": "npm run build-js & npm run build-min & npm run build-module"
+    "build": "npm run build-js && npm run build-min && npm run build-module"
   },
   "publishConfig": {
     "access": "public"
