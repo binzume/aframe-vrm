@@ -9,6 +9,7 @@ interface VecXYZW { x: number, y: number, z: number, w: number }
 declare module "cannon" {
     export interface Vec3 {
         copy(v: VecXYZ): Vec3;
+        length(): number;
     }
     export interface Quaternion {
         copy(v: VecXYZW): Quaternion;

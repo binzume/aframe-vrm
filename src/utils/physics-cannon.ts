@@ -75,8 +75,9 @@ export class VRMPhysicsCannonJS implements VRMModule {
                     let joint = new CANNON.PointToPointConstraint(body, o, parentBody, d);
                     this.constraints.push(joint);
 
+                    let l = body.position.distanceTo(parentBody.position);
                     this.binds.push([node, body]);
-                    this.springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg, size: radius });
+                    this.springBoneSystem.objects.push({ body: body, parentBody: parentBody, force: gravity, boneGroup: bg, size: radius, distanceToParent: l });
                     node.children.forEach(n => (n as THREE.Bone).isBone && add(body, n));
                 };
                 add(root, nodes[b]);
@@ -93,13 +94,20 @@ export class VRMPhysicsCannonJS implements VRMModule {
             update() {
                 let g = this.world!.gravity, dt = this.world!.dt;
                 let avlimit = 0.1;
+                let stiffnessScale = 1600;
                 for (let b of this.objects) {
-                    let body = b.body, parent = b.parentBody;
+                    let body = b.body as CANNON.Body, parent = b.parentBody;
                     // Cancel world.gravity and apply boneGroup.gravity.
                     let f = body.force, m = body.mass, g2 = b.force;
                     f.x += m * (-g.x + g2.x);
                     f.y += m * (-g.y + g2.y);
                     f.z += m * (-g.z + g2.z);
+
+                    // Fix body position
+                    let d = body.position.distanceTo(parent.position);
+                    if (Math.abs(d - b.distanceToParent) > 0.01 && d > 0) {
+                        parent.position.lerp(body.position, b.distanceToParent / d, body.position);
+                    }
 
                     // angularVelocity limitation
                     let av = body.angularVelocity.length();
@@ -108,14 +116,13 @@ export class VRMPhysicsCannonJS implements VRMModule {
                     }
 
                     // apply spring(?) force.
-                    let stiffness = b.boneGroup.stiffiness; // stiff'i'ness
-                    let approxInertia = b.size * b.size * m * 1600;
+                    let approxInertia = b.size * b.size * m;
                     let rot = body.quaternion.mult(parent.quaternion.inverse(_q0), _q1);
                     let [axis, angle] = rot.toAxisAngle(_v0);
                     angle = angle - Math.PI * 2 * Math.floor((angle + Math.PI) / (Math.PI * 2));
-                    let tf = angle * stiffness;
-                    if (Math.abs(tf) > Math.abs(angle / dt / dt * 0.00025)) {
-                        tf = angle / dt / dt * 0.00025; // TODO
+                    let tf = angle * b.boneGroup.stiffiness * stiffnessScale; // stiff'i'ness
+                    if (Math.abs(tf) > Math.abs(angle / dt / dt * 0.5)) {
+                        tf = angle / dt / dt * 0.5;
                     }
                     let af = axis.scale(-tf * approxInertia, axis);
                     body.torque.vadd(af, body.torque);
